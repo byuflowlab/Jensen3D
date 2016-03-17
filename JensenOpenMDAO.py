@@ -3,6 +3,7 @@ from math import tan, pi, sqrt, acos, cos, sin
 import numpy as np
 from openmdao.api import IndepVarComp, Component, Problem, Group
 from openmdao.api import ScipyOptimizer
+import time
 		
 
 
@@ -115,25 +116,78 @@ class jensenPower(Component):
 class rotate(Component):
 
 	def __init__(self, nTurbs):
-		super(jensenPower, self).__init__()
+		super(rotate, self).__init__()
 		
 		self.fd_options['form'] = 'central'
 		self.fd_options['step_size'] = 1.0e-6
 		self.fd_options['step_type'] = 'relative'
 		
-		self.add_param(['x', val=np.zeros(nTurbs)])
-		self.add_param(['y', val=np.zeros(nTurbs)])
-		self.add_param(['windDir', val=0]) #wind direction in radians
+		self.add_param(['x'], val=np.zeros(nTurbs))
+		self.add_param(['y'], val=np.zeros(nTurbs))
+		self.add_param(['windDir'], val=0) #wind direction in radians
 		
-		self.add_output(['xr', val=np.zeros(nTurbs)])
-		self.add_output(['yr', val=np.zeros(nTurbs)]) 
+		self.add_output(['xr'], val=np.zeros(nTurbs))
+		self.add_output(['yr'], val=np.zeros(nTurbs)) 
 
 	def solve_nonlinear(self, params, unknowns, resids):
 		x = params['x']
 		y = params['y']
 		windDir = params['windDir']
 		
-		unknowns['xr'] = x*cos(U_direction_radians)-y*sin(U_direction_radians)
-		unknowns['yr'] = x*sin(U_direction_radians)+y*cos(U_direction_radians)
-		
+        x_r = x*cos(windDir)-y*sin(windDir)
+        y_r = y*cos(windDir)+x*sin(windDir)
+        xr = np.zeros(nTurbs)
+        yr = np.zeros(nTurbs)
+        xr[:] = x_r
+        yr[:] = y_r
+        unknowns['xr'] = xr
+        unknowns['yr'] = yr
 
+class Jensen(Group):
+	"""Group with all the components for the Jensen model"""
+
+	def __init__(self, nTurbs):
+		super(Jensen, self).__init__()
+		
+		self.add('f_1', rotate(nTurbs), promotes=['*'])
+		self.add('f_2', wakeOverlap(nTurbs), promotes=['*'])
+		self.add('f_3', jensenPower(nTurbs), promotes=['*'])
+
+if __name__=="__main__":
+
+    # define turbine locations in global reference frame
+    x = np.array([1164.7, 947.2,  1682.4, 1464.9, 1982.6, 2200.1])
+    y = np.array([1024.7, 1335.3, 1387.2, 1697.8, 2060.3, 1749.7])
+    z = np.array([150, 150, 150, 150, 150, 150])
+	
+    # initialize input variable arrays
+    nTurbs = turbineX.size
+    rotorRadius = np.ones(nTurbs)*40.
+
+    # Define flow properties
+    windSpeed = 8.0
+    windDir_deg = 270. #wind direction in degrees
+    windDir = windDir_deg*pi/180. #Convert wind direction to radians
+
+    #setup problem
+    prob = Problem(root=Jensen(nTurbs))
+
+    #initialize problem
+    prob.setup()
+    
+    #assign values to parameters
+    prob['x'] = turbineX
+    prob['y'] = turbineY
+    prob['z'] = turbineZ
+    prob['windSpeed'] = windSpeed
+    prob['windDir'] = windDir
+
+    #run the problem
+    print('start Jensen run')
+    tic = time.time()
+    prob.run()
+    toc = time.time()
+
+    #print the results
+    print('Time to run: ', toc-tic)
+    print ('Wind Farm Power: ', prob['Power'])
