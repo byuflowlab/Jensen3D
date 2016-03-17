@@ -1,5 +1,5 @@
 from __future__ import print_function
-from math import tan, pi, sqrt, acos
+from math import tan, pi, sqrt, acos, cos, sin
 import numpy as np
 from openmdao.api import IndepVarComp, Component, Problem, Group
 from openmdao.api import ScipyOptimizer
@@ -17,8 +17,8 @@ class wakeOverlap(Component):
 		self.fd_options['step_type'] = 'relative'
 
 		self.nTurbs = nTurbs
-		self.add_param('x', val=np.zeros(nTurbs))
-		self.add_param('y', val=np.zeros(nTurbs))
+		self.add_param('xr', val=np.zeros(nTurbs))
+		self.add_param('yr', val=np.zeros(nTurbs))
 		self.add_param('z', val=np.zeros(nTurbs))
 		self.add_param('r', val=np.zeros(nTurbs))
 		self.add_param('alpha', val=tan(0.1))
@@ -27,8 +27,8 @@ class wakeOverlap(Component):
 
 	def solve_nonlinear(self, params, unknowns, resids):
 		
-		x = params['x']
-		y = params['y']
+		x = params['xr']
+		y = params['yr']
 		z = params['z']
 		r = params['r']
 		alpha = params['alpha']
@@ -74,7 +74,7 @@ class jensenPower(Component):
 		self.fd_options['step_type'] = 'relative'
 		
 		self.nTurbs = nTurbs
-		self.add_param('x', val=np.zeros(nTurbs))
+		self.add_param('xr', val=np.zeros(nTurbs))
 		self.add_param('r', val=np.zeros(nTurbs))
 		self.add_param('alpha', val=tan(0.1))
 		self.add_param('windSpeed', val=0.0)
@@ -87,7 +87,7 @@ class jensenPower(Component):
 
 	def solve_nonlinear(self, params, unknowns, resids):
 	
-		x = params['x']
+		x = params['xr']
 		r = params['r']
 		alpha = params['alpha']
 		a = params['a']
@@ -111,5 +111,29 @@ class jensenPower(Component):
 		unknowns['Power'] = np.sum(power)
 
 
+#Rotate the turbines to be in the reference frame of the wind
+class rotate(Component):
 
+	def __init__(self, nTurbs):
+		super(jensenPower, self).__init__()
+		
+		self.fd_options['form'] = 'central'
+		self.fd_options['step_size'] = 1.0e-6
+		self.fd_options['step_type'] = 'relative'
+		
+		self.add_param(['x', val=np.zeros(nTurbs)])
+		self.add_param(['y', val=np.zeros(nTurbs)])
+		self.add_param(['windDir', val=0]) #wind direction in radians
+		
+		self.add_output(['xr', val=np.zeros(nTurbs)])
+		self.add_output(['yr', val=np.zeros(nTurbs)]) 
+
+	def solve_nonlinear(self, params, unknowns, resids):
+		x = params['x']
+		y = params['y']
+		windDir = params['windDir']
+		
+		unknowns['xr'] = x*cos(U_direction_radians)-y*sin(U_direction_radians)
+		unknowns['yr'] = x*sin(U_direction_radians)+y*cos(U_direction_radians)
+		
 
