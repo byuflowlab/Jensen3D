@@ -129,12 +129,8 @@ class rotate(Component):
 		
 		x_r = x*np.cos(windDir)-y*np.sin(windDir)
 		y_r = y*np.cos(windDir)+x*np.sin(windDir)
-		xr = np.zeros(nTurbs)
-		yr = np.zeros(nTurbs)
-		xr[:] = x_r
-		yr[:] = y_r
-		unknowns['xr'] = xr
-		unknowns['yr'] = yr
+		unknowns['xr'] = x_r
+		unknowns['yr'] = y_r
 
 class Jensen(Group):
 	#Group with all the components for the Jensen model
