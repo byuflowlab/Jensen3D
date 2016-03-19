@@ -108,29 +108,40 @@ class effectiveVelocity(Component):
 #Rotate the turbines to be in the reference frame of the wind
 class rotate(Component):
 
-	def __init__(self, nTurbs):
-		super(rotate, self).__init__()
-		
-		self.fd_options['form'] = 'central'
-		self.fd_options['step_size'] = 1.0e-6
-		self.fd_options['step_type'] = 'relative'
-		
-		self.add_param('x', val=np.zeros(nTurbs))
-		self.add_param('y', val=np.zeros(nTurbs))
-		self.add_param('windDir', val=0) #wind direction in radians
-		
-		self.add_output('xr', val=np.zeros(nTurbs))
-		self.add_output('yr', val=np.zeros(nTurbs)) 
+    def __init__(self, nTurbs):
+        super(rotate, self).__init__()
 
-	def solve_nonlinear(self, params, unknowns, resids):
-		x = params['x']
-		y = params['y']
-		windDir = params['windDir']
+        self.add_param('x', val=np.zeros(nTurbs))
+        self.add_param('y', val=np.zeros(nTurbs))
+        self.add_param('windDir', val=0) #wind direction in radians
+
+        self.add_output('xr', val=np.zeros(nTurbs))
+        self.add_output('yr', val=np.zeros(nTurbs)) 
+
+    def solve_nonlinear(self, params, unknowns, resids):
+        x = params['x']
+        y = params['y']
+        windDir = params['windDir']
 		
-		x_r = x*np.cos(windDir)-y*np.sin(windDir)
-		y_r = y*np.cos(windDir)+x*np.sin(windDir)
-		unknowns['xr'] = x_r
-		unknowns['yr'] = y_r
+        x_r = x*np.cos(windDir)-y*np.sin(windDir)
+        y_r = y*np.cos(windDir)+x*np.sin(windDir)
+        unknowns['xr'] = x_r
+        unknowns['yr'] = y_r
+
+    def linearize(self, params, unknowns, resids):
+        x = params['x']
+        y = params['y']
+        windDir = params['windDir']
+
+        J = {}
+        J['xr', 'x'] = np.cos(windDir)
+        J['xr', 'y'] = -np.sin(windDir)
+        J['xr', 'windDir'] = -x*np.sin(windDir)-y*np.cos(windDir)
+        J['yr', 'x'] = np.sin(windDir)
+        J['yr', 'y'] = np.cos(windDir)
+        J['yr', 'windDir'] = -y*np.sin(windDir)+x*np.cos(windDir)
+
+        return J
 
 class Jensen(Group):
 	#Group with all the components for the Jensen model
