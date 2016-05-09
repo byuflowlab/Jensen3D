@@ -97,7 +97,7 @@ class effectiveVelocity(Component):
 	
 		for i in range(nTurbs):
 			for j in range(nTurbs):
-				dx = x[i]-x[j]
+				dx = abs(x[i]-x[j])
 				loss[j] = overlap[i][j]*2.0*a*(r[j]/(r[j]+alpha*dx))**2 #Jensen's formula
 				loss[j] = loss[j]**2
 			totalLoss = np.sqrt(np.sum(loss)) #square root of the sum of the squares
