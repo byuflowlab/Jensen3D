@@ -1,12 +1,11 @@
 import numpy as np
-from openmdao.api import IndepVarComp, Component, Problem, Group
-from openmdao.api import ScipyOptimizer
-from florisse.GeneralWindFarmComponents import WindFrame
+from openmdao.api import Component, Group, Problem
+
 
 import time
         
 
-#this component is to find the fraction of the all the rotors that are in the wakes of the other turbines
+# this component is to find the fraction of the all the rotors that are in the wakes of the other turbines
 class wakeOverlap(Component):
     
     def __init__(self, nTurbines, direction_id=0):
@@ -73,7 +72,7 @@ class wakeOverlap(Component):
         unknowns['overlap'] = overlap_fraction
 
 
-#slove for the effective wind velocity at each turbine
+# solve for the effective wind velocity at each turbine
 class effectiveVelocity(Component):
     
 
@@ -121,44 +120,66 @@ class effectiveVelocity(Component):
         unknowns['wtVelocity%i' % direction_id] = hubVelocity
 
 
-#Rotate the turbines to be in the reference frame of the wind
-class rotate(Component):
+class effectiveVelocityCosine(Component):
 
-    def __init__(self, nTurbs):
-        super(rotate, self).__init__()
-    
-        self.add_param('turbineX', val=np.zeros(nTurbs))
-        self.add_param('turbineY', val=np.zeros(nTurbs))
-        self.add_param('windDir', val=0) #wind direction in radians
-    
-        self.add_output('turbineXw', val=np.zeros(nTurbs))
-        self.add_output('turbineYw', val=np.zeros(nTurbs)) 
+    def __init__(self, nTurbines, direction_id=0):
+        super(effectiveVelocity, self).__init__()
+
+        self.fd_options['form'] = 'central'
+        self.fd_options['step_size'] = 1.0e-6
+        self.fd_options['step_type'] = 'relative'
+        self.fd_options['force_fd'] = True
+
+        self.nTurbines = nTurbines
+        self.direction_id = direction_id
+
+        self.add_param('turbineXw', val=np.zeros(nTurbines))
+        self.add_param('turbineYw', val=np.zeros(nTurbines))
+        self.add_param('turbineZ', val=np.zeros(nTurbines))
+        self.add_param('rotorDiameter', val=np.zeros(nTurbines))
+        self.add_param('model_params:alpha', val=np.tan(0.1))
+        self.add_param('model_params:cos_spread', val=np.tan(0.1))
+        self.add_param('wind_speed', val=0.0)
+        self.add_param('axialInduction', val=np.zeros(nTurbines)+1./3.)
+        self.add_param('overlap', val=np.empty([nTurbines, nTurbines]))
+
+        self.add_output('wtVelocity%i' % direction_id, val=np.zeros(nTurbines))
 
     def solve_nonlinear(self, params, unknowns, resids):
-        turbineX = params['turbineX']
-        turbineY = params['turbineY']
-        windDir = params['windDir']
-        
-        x_r = turbineX*np.cos(windDir)-turbineY*np.sin(windDir)
-        y_r = turbineY*np.cos(windDir)+turbineX*np.sin(windDir)
-        unknowns['turbineXw'] = x_r
-        unknowns['turbineYw'] = y_r
-    
 
-    def linearize(self, params, unknowns, resids):
-        turbineX = params['turbineX']
-        turbineY = params['turbineY']
-        windDir = params['windDir']
+        turbineXw = params['turbineXw']
+        turbineYw = params['turbineYw']
+        turbineZ = params['turbineZ']
+        r = 0.5*params['rotorDiameter']
+        alpha = params['model_params:alpha']
+        cos_spread = params['model_params:cos_spread']
+        a = params['axialInduction']
+        windSpeed = params['wind_speed']
+        nTurbines = self.nTurbines
+        direction_id = self.direction_id
+        loss = np.zeros(nTurbines)
+        hubVelocity = np.zeros(nTurbines)
+        overlap = params['overlap']
 
-        J = {}
-        J['turbineXw', 'turbineX'] = np.cos(windDir)
-        J['turbineXw', 'turbineY'] = -np.sin(windDir)
-        J['turbineXw', 'windDir'] = -turbineX*np.sin(windDir)-turbineY*np.cos(windDir)
-        J['turbineYw', 'turbineX'] = np.sin(windDir)
-        J['turbineYw', 'turbineY'] = np.cos(windDir)
-        J['turbineYw', 'windDir'] = -turbineY*np.sin(windDir)+turbineX*np.cos(windDir)
+        for i in range(nTurbines):
+            loss[:] = 0.0
+            for j in range(nTurbines):
+                dx = turbineXw[i] - turbineXw[j]
+                # if turbine j is upstream, calculate the deficit
+                if dx > 0.0:
+                    # determine cosine term
+                    dy = turbineYw[i] - turbineYw[j]
+                    dz = turbineZ[i] - turbineZ[j]
+                    R = r[j]+dx*alpha
+                    radiusLoc = np.sqrt(dy*dy+dz*dz)
+                    rmax = cos_spread*(R + r)
+                    cosFac = 0.5*(1.0 + np.cos(np.pi*radiusLoc/rmax))
 
-        return J
+                    loss[j] = overlap[i][j]*2.0*a[j]*(cosFac*r[j]/(r[j]+alpha*dx))**2 #Jensen's formula
+                    loss[j] = loss[j]**2
+            totalLoss = np.sqrt(np.sum(loss)) #square root of the sum of the squares
+            hubVelocity[i] = (1-totalLoss)*windSpeed #effective hub velocity
+        unknowns['wtVelocity%i' % direction_id] = hubVelocity
 
 
 class Jensen(Group):
