@@ -22,10 +22,10 @@ class wakeOverlap(Component):
         self.add_param('turbineXw', val=np.zeros(nTurbines), units='m')
         self.add_param('turbineYw', val=np.zeros(nTurbines), units='m')
         self.add_param('turbineZ', val=np.zeros(nTurbines), units='m')
-        self.add_param('rotorDiameter', val=np.zeros(nTurbines), units='m')
+        self.add_param('rotorDiameter', val=np.zeros(nTurbines)+126.4, units='m')
 
         #unused but required for compatibility
-        self.add_param('yaw%i' % direction_id, np.zeros(nTurbines))
+        self.add_param('yaw%i' % direction_id, np.zeros(nTurbines), units='deg')
         self.add_param('hubHeight', np.zeros(nTurbines), units='m')
         self.add_param('wakeCentersYT', np.zeros(nTurbines*nTurbines), units='m')
         self.add_param('wakeDiametersT', np.zeros(nTurbines*nTurbines), units='m')
@@ -73,7 +73,7 @@ class wakeOverlap(Component):
                         overlap_fraction[i][j] = overlap_area/A
                 
         # print "Overlap Fraction Matrix: ", overlap_fraction
-        print overlap_fraction
+        # print overlap_fraction
         unknowns['overlap'] = overlap_fraction
 
 
@@ -93,7 +93,7 @@ class effectiveVelocity(Component):
         self.direction_id = direction_id
 
         self.add_param('turbineXw', val=np.zeros(nTurbines), units='m')
-        self.add_param('rotorDiameter', val=np.zeros(nTurbines), units='m')
+        self.add_param('rotorDiameter', val=np.zeros(nTurbines)+126.4, units='m')
         self.add_param('model_params:alpha', val=0.1)
         self.add_param('wind_speed', val=8.0, units='m/s')
         self.add_param('axialInduction', val=np.zeros(nTurbines)+1./3.)
@@ -143,7 +143,7 @@ class effectiveVelocityCosineOverlap(Component):
         self.add_param('turbineXw', val=np.zeros(nTurbines), units='m')
         self.add_param('turbineYw', val=np.zeros(nTurbines), units='m')
         self.add_param('turbineZ', val=np.zeros(nTurbines), units='m')
-        self.add_param('rotorDiameter', val=np.zeros(nTurbines), units='m')
+        self.add_param('rotorDiameter', val=np.zeros(nTurbines)+126.4, units='m')
         self.add_param('model_params:alpha', val=0.1)
         self.add_param('model_params:cos_spread', val=2.0)
         self.add_param('wind_speed', val=8.0, units='m/s')
@@ -188,6 +188,7 @@ class effectiveVelocityCosineOverlap(Component):
             hubVelocity[i] = (1-totalLoss)*windSpeed #effective hub velocity
         unknowns['wtVelocity%i' % direction_id] = hubVelocity
 
+
 class effectiveVelocityCosine(Component):
 
     def __init__(self, nTurbines, direction_id=0):
@@ -202,7 +203,7 @@ class effectiveVelocityCosine(Component):
         self.direction_id = direction_id
 
         #unused but required for compatibility
-        self.add_param('yaw%i' % direction_id, np.zeros(nTurbines))
+        self.add_param('yaw%i' % direction_id, np.zeros(nTurbines), units='deg')
         self.add_param('hubHeight', np.zeros(nTurbines), units='m')
         self.add_param('wakeCentersYT', np.zeros(nTurbines*nTurbines), units='m')
         self.add_param('wakeDiametersT', np.zeros(nTurbines*nTurbines), units='m')
@@ -212,7 +213,7 @@ class effectiveVelocityCosine(Component):
         self.add_param('turbineXw', val=np.zeros(nTurbines), units='m')
         self.add_param('turbineYw', val=np.zeros(nTurbines), units='m')
         self.add_param('turbineZ', val=np.zeros(nTurbines), units='m')
-        self.add_param('rotorDiameter', val=np.zeros(nTurbines), units='m')
+        self.add_param('rotorDiameter', val=np.zeros(nTurbines)+126.4, units='m')
         self.add_param('model_params:alpha', val=0.1)
         self.add_param('model_params:cos_spread', val=1.0)
         self.add_param('wind_speed', val=8.0, units='m/s')
@@ -246,7 +247,7 @@ class effectiveVelocityCosine(Component):
                     dz = turbineZ[i] - turbineZ[j]
                     R = r[j]+dx*alpha
                     radiusLoc = np.sqrt(dy*dy+dz*dz)
-                    print radiusLoc
+                    # print radiusLoc
                     rmax = cos_spread*(R+r[i])
                     cosFac = 0.5*(1.0 + np.cos(np.pi*radiusLoc/rmax))
 
