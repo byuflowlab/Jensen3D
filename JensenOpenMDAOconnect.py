@@ -273,10 +273,10 @@ class Jensen(Group):
         if model_options['variant'] is 'Original':
             self.add('f_1', wakeOverlap(nTurbs, direction_id=direction_id), promotes=['*'])
             self.add('f_2', effectiveVelocity(nTurbs, direction_id=direction_id), promotes=['*'])
-        if model_options['variant'] is 'CosineOverlap':
+        if model_options['variant'] is 'Cosine':
             self.add('f_1', wakeOverlap(nTurbs, direction_id=direction_id), promotes=['*'])
             self.add('f_2', effectiveVelocityCosineOverlap(nTurbs, direction_id=direction_id), promotes=['*'])
-        if model_options['variant'] is 'Cosine':
+        if model_options['variant'] is 'CosineNoOverlap':
             self.add('f_1', effectiveVelocityCosine(nTurbs, direction_id=direction_id), promotes=['*'])
 
 
