@@ -249,11 +249,13 @@ class effectiveVelocityCosine(Component):
                     radiusLoc = np.sqrt(dy*dy+dz*dz)
                     # print radiusLoc
                     rmax = cos_spread*(R+r[i])
-                    cosFac = 0.5*(1.0 + np.cos(np.pi*radiusLoc/rmax))
 
-                    # calculate velocity deficit
-                    loss[j] = 2.0*a[j]*(cosFac*r[j]/(r[j]+alpha*dx))**2 #Jensen's formula
-                    loss[j] = loss[j]**2
+                    if radiusLoc < rmax:
+                        cosFac = 0.5*(1.0 + np.cos(np.pi*radiusLoc/rmax))
+
+                        # calculate velocity deficit
+                        loss[j] = 2.0*a[j]*(cosFac*r[j]/(r[j]+alpha*dx))**2 #Jensen's formula
+                        loss[j] = loss[j]**2
             totalLoss = np.sqrt(np.sum(loss)) #square root of the sum of the squares
             hubVelocity[i] = (1-totalLoss)*windSpeed #effective hub velocity
         unknowns['wtVelocity%i' % direction_id] = hubVelocity
