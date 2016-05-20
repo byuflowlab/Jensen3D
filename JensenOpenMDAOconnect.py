@@ -1,11 +1,23 @@
 import numpy as np
-from openmdao.api import Component, Group, Problem
+from openmdao.api import Component, Group, Problem, IndepVarComp
 
 from florisse.GeneralWindFarmComponents import WindFrame
 
-
 import time
-        
+
+
+def add_jensen_params_IndepVarComps(openmdao_object, model_options):
+
+    openmdao_object.add('jp0', IndepVarComp('model_params:alpha', 2.0, pass_by_obj=True,
+                                             desc='spread of cosine smoothing factor (multiple of sum of wake and '
+                                                  'rotor radii)'),
+                        promotes=['*'])
+
+    if model_options['variant'] is 'Cosine' or model_options['variant'] is 'CosineNoOverlap':
+        openmdao_object.add('jp1', IndepVarComp('model_params:cos_spread', 2.0, pass_by_obj=True,
+                                                desc='spread of cosine smoothing factor (multiple of sum of wake and '
+                                                     'rotor radii)'),
+                            promotes=['*'])
 
 # this component is to find the fraction of the all the rotors that are in the wakes of the other turbines
 class wakeOverlap(Component):
@@ -13,10 +25,10 @@ class wakeOverlap(Component):
     def __init__(self, nTurbines, direction_id=0):
         super(wakeOverlap, self).__init__()
 
-        self.fd_options['form'] = 'central'
-        self.fd_options['step_size'] = 1.0e-6
-        self.fd_options['step_type'] = 'relative'
-        self.fd_options['force_fd'] = True
+        self.deriv_options['form'] = 'central'
+        self.deriv_options['step_size'] = 1.0e-6
+        self.deriv_options['step_calc'] = 'relative'
+        self.deriv_options['type'] = 'fd'
 
         self.nTurbines = nTurbines
         self.add_param('turbineXw', val=np.zeros(nTurbines), units='m')
@@ -79,15 +91,14 @@ class wakeOverlap(Component):
 
 # solve for the effective wind velocity at each turbine
 class effectiveVelocity(Component):
-    
 
     def __init__(self, nTurbines, direction_id=0):
         super(effectiveVelocity, self).__init__()
         
-        self.fd_options['form'] = 'central'
-        self.fd_options['step_size'] = 1.0e-6
-        self.fd_options['step_type'] = 'relative'
-        self.fd_options['force_fd'] = True
+        self.deriv_options['form'] = 'central'
+        self.deriv_options['step_size'] = 1.0e-6
+        self.deriv_options['step_calc'] = 'relative'
+        self.deriv_options['type'] = 'fd'
         
         self.nTurbines = nTurbines
         self.direction_id = direction_id
@@ -132,10 +143,10 @@ class effectiveVelocityCosineOverlap(Component):
     def __init__(self, nTurbines, direction_id=0):
         super(effectiveVelocityCosineOverlap, self).__init__()
 
-        self.fd_options['form'] = 'central'
-        self.fd_options['step_size'] = 1.0e-6
-        self.fd_options['step_type'] = 'relative'
-        self.fd_options['force_fd'] = True
+        self.deriv_options['form'] = 'central'
+        self.deriv_options['step_size'] = 1.0e-6
+        self.deriv_options['step_calc'] = 'relative'
+        self.deriv_options['type'] = 'fd'
 
         self.nTurbines = nTurbines
         self.direction_id = direction_id
@@ -194,10 +205,10 @@ class effectiveVelocityCosine(Component):
     def __init__(self, nTurbines, direction_id=0):
         super(effectiveVelocityCosine, self).__init__()
 
-        self.fd_options['form'] = 'central'
-        self.fd_options['step_size'] = 1.0e-6
-        self.fd_options['step_type'] = 'relative'
-        self.fd_options['force_fd'] = True
+        self.deriv_options['form'] = 'central'
+        self.deriv_options['step_size'] = 1.0e-6
+        self.deriv_options['step_calc'] = 'relative'
+        self.deriv_options['type'] = 'fd'
 
         self.nTurbines = nTurbines
         self.direction_id = direction_id
