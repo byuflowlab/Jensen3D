@@ -25,10 +25,10 @@ class wakeOverlap(Component):
     def __init__(self, nTurbines, direction_id=0):
         super(wakeOverlap, self).__init__()
 
-        self.deriv_options['form'] = 'central'
-        self.deriv_options['step_size'] = 1.0e-6
-        self.deriv_options['step_calc'] = 'relative'
-        self.deriv_options['type'] = 'fd'
+        self.fd_options['form'] = 'central'
+        self.fd_options['step_size'] = 1.0e-6
+        self.fd_options['step_type'] = 'relative'
+        self.fd_options['force_fd'] = True
 
         self.nTurbines = nTurbines
         self.add_param('turbineXw', val=np.zeros(nTurbines), units='m')
@@ -95,10 +95,10 @@ class effectiveVelocity(Component):
     def __init__(self, nTurbines, direction_id=0):
         super(effectiveVelocity, self).__init__()
         
-        self.deriv_options['form'] = 'central'
-        self.deriv_options['step_size'] = 1.0e-6
-        self.deriv_options['step_calc'] = 'relative'
-        self.deriv_options['type'] = 'fd'
+        self.fd_options['form'] = 'central'
+        self.fd_options['step_size'] = 1.0e-6
+        self.fd_options['step_type'] = 'relative'
+        self.fd_options['force_fd'] = True
         
         self.nTurbines = nTurbines
         self.direction_id = direction_id
@@ -143,10 +143,10 @@ class effectiveVelocityCosineOverlap(Component):
     def __init__(self, nTurbines, direction_id=0):
         super(effectiveVelocityCosineOverlap, self).__init__()
 
-        self.deriv_options['form'] = 'central'
-        self.deriv_options['step_size'] = 1.0e-6
-        self.deriv_options['step_calc'] = 'relative'
-        self.deriv_options['type'] = 'fd'
+        self.fd_options['form'] = 'central'
+        self.fd_options['step_size'] = 1.0e-6
+        self.fd_options['step_type'] = 'relative'
+        self.fd_options['force_fd'] = True
 
         self.nTurbines = nTurbines
         self.direction_id = direction_id
@@ -205,10 +205,10 @@ class effectiveVelocityCosine(Component):
     def __init__(self, nTurbines, direction_id=0):
         super(effectiveVelocityCosine, self).__init__()
 
-        self.deriv_options['form'] = 'central'
-        self.deriv_options['step_size'] = 1.0e-6
-        self.deriv_options['step_calc'] = 'relative'
-        self.deriv_options['type'] = 'fd'
+        self.fd_options['form'] = 'central'
+        self.fd_options['step_size'] = 1.0e-6
+        self.fd_options['step_type'] = 'relative'
+        self.fd_options['force_fd'] = True
 
         self.nTurbines = nTurbines
         self.direction_id = direction_id
