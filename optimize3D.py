@@ -113,8 +113,8 @@ def calc_AEP(x):
     return -AEP/1e9, constraints/1e6
 
 if __name__=="__main__":
-    x = np.array([0, 0, 50, 50,300,300]) #x coordinates of the turbines
-    y = np.array([0, 400, 0, 600,50,365]) #y coordinates of the turbines
+    x = np.array([0, 0, 50, 50,300,300,20,20]) #x coordinates of the turbines
+    y = np.array([0, 400, 0, 600,50,365,45,80]) #y coordinates of the turbines
     # z = np.array([150, 150, 150, 250, 250, 250, 350, 500, 350]) #hub height of each turbine
     # r_0 = np.array([40, 40, 40, 50, 50, 50, 60, 75, 60])
     # r_0 = np.ones(len(x))*20

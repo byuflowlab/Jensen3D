@@ -104,12 +104,34 @@ class effectiveVelocity(Component):
 			hubVelocity[i] = (1-totalLoss)*windSpeed #effective hub velocity
 		unknowns['hubVelocity'] = hubVelocity
 
+        """def linearize(self, params, unkowns, resids):
+
+        x = params['xr']
+		r = params['r']
+		alpha = params['alpha']
+		a = params['a']
+		windSpeed = params['windSpeed']
+		nTurbs = len(x)
+		loss = np.zeros(nTurbs)
+		hubVelocity = np.zeros(nTurbs)
+		overlap = params['overlap']
+
+        J = {}
+        J['hubVelocity', 'r'] =
+        J['hubVelocity', 'xr'] = 
+        J['hubVelocity', 'alpha'] = 
+        J['hubVelocity', 'a'] = 
+        J['hubVelocity', """
 
 #Rotate the turbines to be in the reference frame of the wind
 class rotate(Component):
 
     def __init__(self, nTurbs):
         super(rotate, self).__init__()
+
+        self.fd_options['form'] = 'central'
+        self.fd_options['step_size'] = 1.0e-6
+        self.fd_options['step_type'] = 'relative'
 
         self.add_param('x', val=np.zeros(nTurbs))
         self.add_param('y', val=np.zeros(nTurbs))
@@ -128,7 +150,7 @@ class rotate(Component):
         unknowns['xr'] = x_r
         unknowns['yr'] = y_r
 
-    def linearize(self, params, unknowns, resids):
+    """def linearize(self, params, unknowns, resids):
         x = params['x']
         y = params['y']
         windDir = params['windDir']
@@ -141,7 +163,7 @@ class rotate(Component):
         J['yr', 'y'] = np.cos(windDir)
         J['yr', 'windDir'] = -y*np.sin(windDir)+x*np.cos(windDir)
 
-        return J
+        return J"""
 
 class Jensen(Group):
 	#Group with all the components for the Jensen model
@@ -155,40 +177,50 @@ class Jensen(Group):
 
 if __name__=="__main__":
 
-	# define turbine locations in global reference frame
-	x = np.array([0,500,1000])
-	y = np.array([0,0,0])
-	z = np.array([150, 250, 350])
+    # define turbine locations in global reference frame
+    x = np.array([0,500,1000])
+    y = np.array([0,0,0])
+    z = np.array([150, 250, 350])
 	
-	# initialize input variable arrays
-	nTurbs = np.size(x)
-	rotorRadius = np.ones(nTurbs)*40.
+    # initialize input variable arrays
+    nTurbs = np.size(x)
+    rotorRadius = np.ones(nTurbs)*40.
 
-	# Define flow properties
-	windSpeed = 8.0
-	windDir_deg = 8.5 #wind direction in degrees
-	windDir = windDir_deg*np.pi/180. #Convert wind direction to radians
+    # Define flow properties
+    windSpeed = 8.0
+    windDir_deg = 8.5 #wind direction in degrees
+    windDir = windDir_deg*np.pi/180. #Convert wind direction to radians
 
-	#setup problem
-	prob = Problem(root=Jensen(nTurbs))
+    #setup problem
+    prob = Problem(root=Jensen(nTurbs))
+    #initialize problem
+    prob.setup()
 
-	#initialize problem
-	prob.setup()
-    
 	#assign values to parameters
-	prob['x'] = x
-	prob['y'] = y
-	prob['z'] = z
-	prob['r'] = rotorRadius
-	prob['windSpeed'] = windSpeed
-	prob['windDir'] = windDir
+    prob['x'] = x
+    prob['y'] = y
+    prob['z'] = z
+    prob['r'] = rotorRadius
+    prob['windSpeed'] = windSpeed
+    prob['windDir'] = windDir
+
+    prob.driver = ScipyOptimizer()
+    prob.driver.options['optimizer'] = 'SLSQP'
+
+    prob.driver.add_desvar('x', lower=np.ones(nTurbs)*0, upper=np.ones(nTurbs)*1000)
+    prob.driver.add_desvar('y', lower=np.ones(nTurbs)*0, upper=np.ones(nTurbs)*1000)
+    prob.driver.add_desvar('z', lower=np.ones(nTurbs)*50, upper=np.ones(nTurbs)*150)
+    prob.driver.add_objective('hubVelocity')
+
+    
+    
 
 	#run the problem
-	print 'start Jensen run'
-	tic = time.time()
-	prob.run()
-	toc = time.time()
-
-	#print the results
-	print 'Time to run: ', toc-tic
-	print 'Hub Velocity at Each Turbine: ', prob['hubVelocity']
+    print 'start Jensen run'
+    tic = time.time()
+    prob.run()
+    toc = time.time()
+    
+    #print the results
+    print 'Time to run: ', toc-tic
+    print 'Hub Velocity at Each Turbine: ', prob['hubVelocity']
