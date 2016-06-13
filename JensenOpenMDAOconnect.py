@@ -358,8 +358,8 @@ class effectiveVelocityConference(Component):
         Ueff = np.zeros(n)     # initialize effective wind speeds array
 
         # find wake overlap
-        # Overlap_adjust = conferenceWakeOverlap(x, y, R)
-        Overlap_adjust = conferenceWakeOverlap_tune(x, y, R, boundAngle)
+        Overlap_adjust = conferenceWakeOverlap(x, y, R)
+        # Overlap_adjust = conferenceWakeOverlap_tune(x, y, R, boundAngle)
 
         # find upwind turbines and calc power for them
         # Pow = np.zeros(n)
