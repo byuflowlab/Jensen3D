@@ -202,10 +202,10 @@ class effectiveVelocityCosineOverlap(Component):
         unknowns['wtVelocity%i' % direction_id] = hubVelocity
 
 
-class effectiveVelocityCosine(Component):
+class effectiveVelocityCosineNoOverlap(Component):
 
-    def __init__(self, nTurbines, direction_id=0):
-        super(effectiveVelocityCosine, self).__init__()
+    def __init__(self, nTurbines, direction_id=0, options=None):
+        super(effectiveVelocityCosineNoOverlap, self).__init__()
 
         self.fd_options['form'] = 'central'
         self.fd_options['step_size'] = 1.0e-6
@@ -214,6 +214,11 @@ class effectiveVelocityCosine(Component):
 
         self.nTurbines = nTurbines
         self.direction_id = direction_id
+        if options is None:
+            self.radius_multiplier = 1.0
+        else:
+            self.radius_multiplier = options['radius multiplier']
+
 
         #unused but required for compatibility
         self.add_param('yaw%i' % direction_id, np.zeros(nTurbines), units='deg')
@@ -229,7 +234,7 @@ class effectiveVelocityCosine(Component):
         self.add_param('turbineZ', val=np.zeros(nTurbines), units='m')
         self.add_param('rotorDiameter', val=np.zeros(nTurbines)+126.4, units='m')
         self.add_param('model_params:alpha', val=0.1)
-        self.add_param('model_params:cos_spread', val=1.0)
+        self.add_param('model_params:cos_spread', val=20.0, desc="spreading angle in degrees")
         self.add_param('wind_speed', val=8.0, units='m/s')
         self.add_param('axialInduction', val=np.zeros(nTurbines)+1./3.)
 
@@ -242,7 +247,7 @@ class effectiveVelocityCosine(Component):
         turbineZ = params['turbineZ']
         r = 0.5*params['rotorDiameter']
         alpha = params['model_params:alpha']
-        cos_spread = params['model_params:cos_spread']
+        bound_angle = params['model_params:cos_spread']
         a = params['axialInduction']
         windSpeed = params['wind_speed']
         nTurbines = self.nTurbines
@@ -250,30 +255,24 @@ class effectiveVelocityCosine(Component):
         loss = np.zeros(nTurbines)
         hubVelocity = np.zeros(nTurbines)
 
+        f_theta = get_cosine_factor_original(turbineXw, turbineYw, R0=r[0]*self.radius_multiplier, bound_angle=bound_angle)
+        # print f_theta
+
         for i in range(nTurbines):
             loss[:] = 0.0
             for j in range(nTurbines):
                 dx = turbineXw[i] - turbineXw[j]
                 # if turbine j is upstream, calculate the deficit
                 if dx > 0.0:
-                    # determine cosine term
-                    dy = turbineYw[i] - turbineYw[j]
-                    dz = turbineZ[i] - turbineZ[j]
-                    R = r[j]+dx*alpha
-                    radiusLoc = np.sqrt(dy*dy+dz*dz)
-                    # print radiusLoc
-                    # rmax = cos_spread*(R+r[i])
-                    rmax = cos_spread*(R+r[i])
 
-                    if radiusLoc < rmax:
-                        cosFac = 0.5*(1.0 + np.cos(np.pi*radiusLoc/rmax))
+                  # calculate velocity deficit
+                  loss[j] = 2.0*a[j]*(f_theta[j][i]*r[j]/(r[j]+alpha*dx))**2 #Jensen's formula
 
-                        # calculate velocity deficit
-                        loss[j] = 2.0*a[j]*(cosFac*r[j]/(r[j]+alpha*dx))**2 #Jensen's formula
+                  loss[j] = loss[j]**2
 
-                        loss[j] = loss[j]**2
             totalLoss = np.sqrt(np.sum(loss)) #square root of the sum of the squares
-            hubVelocity[i] = (1-totalLoss)*windSpeed #effective hub velocity
+            hubVelocity[i] = (1.-totalLoss)*windSpeed #effective hub velocity
+            # print hubVelocity
         unknowns['wtVelocity%i' % direction_id] = hubVelocity
 
 
@@ -466,6 +465,28 @@ def conferenceWakeOverlap_tune(X, Y, R, boundAngle):
     return f_theta
 
 
+def get_cosine_factor_original(X, Y, R0, bound_angle=20.0):
+
+    n = np.size(X)
+    bound_angle = bound_angle*np.pi/180.0
+    # theta = np.zeros((n, n), dtype=np.float)      # angle of wake from fulcrum
+    f_theta = np.zeros((n, n), dtype=np.float)      # smoothing values for smoothing
+    q = np.pi/bound_angle                           # factor inside the cos term of the smooth Jensen (see Jensen1983 eq.(3))
+
+    for i in range(0, n):
+        for j in range(0, n):
+            if X[i] < X[j]:
+                z = R0/np.tan(bound_angle)               # distance from fulcrum to wake producing turbine
+
+                theta = np.arctan((Y[j] - Y[i]) / (X[j] - X[i] + z))
+
+                if -bound_angle < theta < bound_angle:
+
+                    f_theta[i][j] = (1. + np.cos(q*theta))/2.
+
+    return f_theta
+
+
 def conferenceWakeOverlap_bk(X, Y, R):
     from math import atan, tan, cos
     n = np.size(X)
@@ -577,12 +598,13 @@ class Jensen(Group):
         if model_options['variant'] is 'Original':
             self.add('f_1', wakeOverlap(nTurbs, direction_id=direction_id), promotes=['*'])
             self.add('f_2', effectiveVelocity(nTurbs, direction_id=direction_id), promotes=['*'])
-        if model_options['variant'] is 'Cosine':
+        elif model_options['variant'] is 'Cosine':
             self.add('f_1', wakeOverlap(nTurbs, direction_id=direction_id), promotes=['*'])
             self.add('f_2', effectiveVelocityCosineOverlap(nTurbs, direction_id=direction_id), promotes=['*'])
-        if model_options['variant'] is 'CosineNoOverlap':
-            self.add('f_1', effectiveVelocityCosine(nTurbs, direction_id=direction_id), promotes=['*'])
-        if model_options['variant'] is 'Conference':
+        elif model_options['variant'] is 'CosineNoOverlap_1R' or model_options['variant'] is 'CosineNoOverlap_2R':
+            self.add('f_1', effectiveVelocityCosineNoOverlap(nTurbs, direction_id=direction_id, options=model_options),
+                     promotes=['*'])
+        elif model_options['variant'] is 'Conference':
             self.add('f_1', effectiveVelocityConference(nTurbines=nTurbs, direction_id=direction_id), promotes=['*'])
 
 
