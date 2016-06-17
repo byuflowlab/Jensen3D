@@ -196,6 +196,7 @@ class effectiveVelocityCosineOverlap(Component):
 
                     loss[j] = overlap[i][j]*2.0*a[j]*(cosFac*r[j]/(r[j]+alpha*dx))**2 #Jensen's formula
                     loss[j] = loss[j]**2
+
             totalLoss = np.sqrt(np.sum(loss)) #square root of the sum of the squares
             hubVelocity[i] = (1-totalLoss)*windSpeed #effective hub velocity
         unknowns['wtVelocity%i' % direction_id] = hubVelocity
@@ -261,6 +262,7 @@ class effectiveVelocityCosine(Component):
                     R = r[j]+dx*alpha
                     radiusLoc = np.sqrt(dy*dy+dz*dz)
                     # print radiusLoc
+                    # rmax = cos_spread*(R+r[i])
                     rmax = cos_spread*(R+r[i])
 
                     if radiusLoc < rmax:
@@ -268,6 +270,7 @@ class effectiveVelocityCosine(Component):
 
                         # calculate velocity deficit
                         loss[j] = 2.0*a[j]*(cosFac*r[j]/(r[j]+alpha*dx))**2 #Jensen's formula
+
                         loss[j] = loss[j]**2
             totalLoss = np.sqrt(np.sum(loss)) #square root of the sum of the squares
             hubVelocity[i] = (1-totalLoss)*windSpeed #effective hub velocity
@@ -301,6 +304,7 @@ class effectiveVelocityConference(Component):
         self.add_param('turbineZ', val=np.zeros(nTurbines), units='m')
         self.add_param('rotorDiameter', val=np.zeros(nTurbines)+126.4, units='m')
         self.add_param('model_params:alpha', val=0.1)
+        self.add_param('model_params:cos_spread', val=0.1)
         self.add_param('wind_speed', val=8.0, units='m/s')
         self.add_param('axialInduction', val=np.zeros(nTurbines)+1./3.)
 
@@ -320,8 +324,10 @@ class effectiveVelocityConference(Component):
         hubVelocity = np.zeros(nTurbines)
 
          # conference terms
-        boundAngle = 20       # before tuning to FLORIS
+        # boundAngle = 20       # before tuning to FLORIS
         # boundAngle = 7.7085     # tuned to FLORIS with offset
+        # boundAngle = 12.7085     # tuned to FLORIS with offset
+        # boundAngle =
 
         D = np.average(rotorDiams)
         a = np.average(axialInd)
@@ -331,7 +337,7 @@ class effectiveVelocityConference(Component):
         # alpha = 0.084647            # Entrainment constant optimized to match FLORIS at 7*D
         # alpha = 0.399354
         # alpha = 0.216035
-        R = D/2
+        R = D/2.
         # Ct = (4/3)*(1-1/3)
         # Uin = 8
         Uin = effU
@@ -363,7 +369,7 @@ class effectiveVelocityConference(Component):
 
         # find upwind turbines and calc power for them
         # Pow = np.zeros(n)
-        front = np.zeros(n)
+        front = np.ones(n)
         for j in range(0, n):
             for i in range(0, n):
                 if Overlap_adjust[i][j] != 0:
@@ -386,17 +392,18 @@ class effectiveVelocityConference(Component):
                 G = 0
                 for i in range(0, n):
 
-                    if x[q] - x[i] > 0:
+                    if x[q] - x[i] > 0 and q != i:
 
                         z = abs(x[q] - x[i])
 
                         # V = Ueff[i]*(1-(2.0/3.0)*(R/(R+alpha*z))**2)
-                        V = Uin*(1-Overlap_adjust[i][q]*(R/(R+alpha*z))**2)
+                        V = Uin*(1-Overlap_adjust[i][q]*(R/(R+alpha*z))**2) # conference method
+                        # V = Uin*(1.-2.*a*(Overlap_adjust[i][q]*R/(R+alpha*z))**2) # corrected method (overlap_adjust is actualy f_cosine here)
                         # print V
                         G = G + (1.0-V/Uin)**2
 
                     # print 'G is:', G
-                Ueff[q] = (1-np.sqrt(G))*Uin
+                Ueff[q] = (1.-np.sqrt(G))*Uin
                 # print Ueff[q]
 
             # commented since power is calculated elsewhere in code
@@ -457,6 +464,103 @@ def conferenceWakeOverlap_tune(X, Y, R, boundAngle):
     # print z
     # print f_theta
     return f_theta
+
+
+def conferenceWakeOverlap_bk(X, Y, R):
+    from math import atan, tan, cos
+    n = np.size(X)
+
+    # theta = np.zeros((n, n), dtype=np.float)        # angle of wake from fulcrum
+    f_theta = np.zeros((n, n), dtype=np.float)      # smoothing values for smoothing
+
+    for i in range(0, n):
+        for j in range(0, n):
+            if X[i] < X[j]:
+                z = R/tan(0.34906585)
+                theta = atan(Y[j] - Y[i]) / (X[j] - X[i] + z)
+                if -0.34906585 < theta < 0.34906585:
+                    f_theta[i][j] = (1 + cos(9*theta))/2
+                    # print f_theta
+
+    return f_theta
+
+
+def jensen_bk(X, Y, wind, D):
+    from math import sin, pi, cos
+# X is an ndarray of the x-coordinates of all turbines in the plant
+# Y is an ndarray of the y-coordinates of all turbines in the plant
+# R is an integer representing a consistent turbine radius
+# Uinf is the free stream velocity
+# The cosine-bell method [N.O.Jensen] is  employed
+# Assume no wake deflection. Set wake center equal to hub center
+# Assume effective wind speed at rotor hub is the effective windspeed for the entire rotor
+
+    alpha = 0.1                 # Entrainment constant per N. O. Jensen "A Note on Wind Generator Interaction".
+    # alpha = 0.01              # Entrainment constant per Andersen et al "Comparison of Engineering Wake Models with CFD Simulations"
+    R = D/2
+    Uin = 8
+    Uinf = np.ones(X.size)*Uin
+    a = 0.333333333333          # this assumes an optimal rotor. For a more general equation, see FLORIS paper
+    eta = 0.768
+    Cp = 4*a*((1-a)**2)*eta
+    rho = 1.1716
+    n = np.size(X)
+    Area = pi*pow(R, 2)
+
+    Phi = (90-wind)*pi/180           # define inflow direction relative to North = 0 CCW
+
+    # adjust coordinates to wind direction
+    x = np.zeros(n)
+    y = np.zeros(n)
+    for i in range(0, n):
+        # x[i], y[i] = np.dot(np.array([[cos(-Phi), sin(-Phi)], [-sin(-Phi), cos(-Phi)]]), np.array([X[i], Y[i]]))
+        x[i] = X[i]*cos(-Phi)-Y[i]*sin(-Phi)
+        y[i] = X[i]*sin(-Phi)+Y[i]*cos(-Phi)
+    # print x, y
+    Ueff = np.zeros(n)     # initialize effective wind speeds array
+
+    # find wake overlap
+    Overlap_adjust = conferenceWakeOverlap_bk(x, y, R)
+
+    # find upwind turbines and calc power for them
+    Pow = np.zeros(n)
+    front = np.zeros(n)
+    for j in range(0, n):
+        for i in range(0, n):
+            if Overlap_adjust[i][j] == 0:
+                front[j] = 1
+
+        if front[j] == 1:
+           Ueff[j] = Uinf[j]
+           Pow[j] = 0.5*rho*Area*Cp*Ueff[j]**3
+           # print j #Pow[j]
+
+    # calc power for downstream turbines
+    for j in range(0, n):
+        if front[j] == 0:
+            k = 0
+            q = 0
+
+            for i in range(0, n):
+                if X[j] - X[i] > 0:
+                    q += 1
+                    z = X[j] - X[i]
+                    k += Overlap_adjust[i][j]*(R/(R+alpha*z))**2
+                    # adjust_temp = Overlap_adjust[i][j]
+            if q > 0:
+                k = k/q
+
+            Ueff[j] = Uinf[j]*(1 - 2*a*k)
+            if Ueff[j] < 0:
+                Ueff[j] = 0
+                print j
+            else:
+                Pow[j] = 0.5*rho*Area*Cp*Ueff[j]**3
+
+    Pow_tot = np.sum(Pow)
+
+    # return Pow_tot  # Ueff is an ndarray of effective windspeeds at each turbine in the plant
+    return Pow
 
 
 class Jensen(Group):
