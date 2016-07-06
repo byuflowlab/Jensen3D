@@ -457,7 +457,7 @@ class JensenCosineYaw(Component):
         def get_wake_offset(dx, wake_spread_angle, yaw, Ct, R):
              # calculate initial wake angle
             # initial_wake_angle = 0.5*Ct*np.sin(yaw)*np.cos(yaw)**2 + 3.0*np.pi/180.
-            initial_wake_angle = 0.5*Ct*np.sin(yaw)*np.cos(yaw)**2
+            initial_wake_angle = 0.5*Ct*np.sin(yaw)#*np.cos(yaw)**2
 
             # calculate distance from wake cone apex to wake producing turbine
             x1 = R/np.tan(wake_spread_angle)
@@ -522,6 +522,126 @@ class JensenCosineYaw(Component):
             hubVelocity[i] = (1.-totalLoss)*windSpeed #effective hub velocity
             # print hubVelocity
         unknowns['wtVelocity%i' % direction_id] = hubVelocity
+
+
+class JensenCosineYawIntegral(Component):
+
+    def __init__(self, nTurbines, direction_id=0, options=None):
+        super(JensenCosineYawIntegral, self).__init__()
+
+        self.fd_options['form'] = 'central'
+        self.fd_options['step_size'] = 1.0e-6
+        self.fd_options['step_type'] = 'relative'
+        self.fd_options['force_fd'] = True
+
+        self.nTurbines = nTurbines
+        self.direction_id = direction_id
+        if options is None:
+            self.radius_multiplier = 1.0
+        else:
+            self.radius_multiplier = options['radius multiplier']
+
+        #unused but required for compatibility
+        self.add_param('yaw%i' % direction_id, np.zeros(nTurbines), units='deg')
+        self.add_param('hubHeight', np.zeros(nTurbines), units='m')
+        self.add_param('wakeCentersYT', np.zeros(nTurbines*nTurbines), units='m')
+        self.add_param('wakeDiametersT', np.zeros(nTurbines*nTurbines), units='m')
+        self.add_param('wakeOverlapTRel', np.zeros(nTurbines*nTurbines))
+        self.add_param('Ct', np.zeros(nTurbines))
+
+        # used in this version of the Jensen model
+        self.add_param('turbineXw', val=np.zeros(nTurbines), units='m')
+        self.add_param('turbineYw', val=np.zeros(nTurbines), units='m')
+        self.add_param('turbineZ', val=np.zeros(nTurbines), units='m')
+        self.add_param('rotorDiameter', val=np.zeros(nTurbines)+126.4, units='m')
+        self.add_param('model_params:alpha', val=0.1)
+        self.add_param('model_params:spread_angle', val=20.0, desc="spreading angle in degrees")
+        self.add_param('wind_speed', val=8.0, units='m/s')
+        self.add_param('axialInduction', val=np.zeros(nTurbines)+1./3.)
+
+        self.add_output('wtVelocity%i' % direction_id, val=np.zeros(nTurbines), units='m/s')
+
+    def solve_nonlinear(self, params, unknowns, resids):
+
+        def get_wake_offset(dx, wake_spread_angle, yaw, Ct, R):
+             # calculate initial wake angle
+            # initial_wake_angle = 0.5*Ct*np.sin(yaw)*np.cos(yaw)**2 + 3.0*np.pi/180.
+            initial_wake_angle = 0.5*Ct*np.sin(yaw)#*np.cos(yaw)**2
+
+            # calculate distance from wake cone apex to wake producing turbine
+            x1 = R/np.tan(wake_spread_angle)
+
+            # calculate x position with cone apex as origin
+            x = x1 + dx
+
+            # calculate wake offset due to yaw
+            deltaY = -initial_wake_angle*(x1**2)/x + x1*initial_wake_angle
+            # print deltaY, initial_wake_angle, x1, Ct
+            # return deltaY + 4.5
+            return deltaY
+
+        def get_deficit(dy, dx, offset, bound_angle, alpha, z):
+
+            # calculate f(theta)
+            theta = np.arctan((dy - offset) / (dx + z))
+
+            if -bound_angle < theta < bound_angle:
+                f_theta = (1. + np.cos(q*theta))/2.
+            else:
+                f_theta = 0.0
+
+            # calculate velocity deficit
+            deficit = 2.0*a[j]*(f_theta*r[j]/(r[j]+alpha*dx))**2 #Jensen's formula
+
+            return deficit
+
+        # def get_deficit_integral(theta, rotor_diameter)
+
+        nTurbines = self.nTurbines
+        direction_id = self.direction_id
+        turbineXw = params['turbineXw']
+        turbineYw = params['turbineYw']
+        turbineZ = params['turbineZ']
+        yaw = params['yaw%i' % direction_id]
+        r = 0.5*params['rotorDiameter']
+        Ct = params['Ct']
+        alpha = params['model_params:alpha']
+        bound_angle = params['model_params:spread_angle']
+        a = params['axialInduction']
+        windSpeed = params['wind_speed']
+        loss = np.zeros(nTurbines)
+        hubVelocity = np.zeros(nTurbines)
+
+        bound_angle *= np.pi/180.0                                      # convert bound angle to radians
+        q = np.pi/bound_angle                                           # factor inside the cos term of the smooth Jensen (see Jensen1983 eq.(3))
+
+        for i in range(nTurbines):
+            loss[:] = 0.0
+            for j in range(nTurbines):
+                dx = turbineXw[i] - turbineXw[j]
+                dy = turbineYw[j] - turbineYw[i]
+                # if turbine j is upstream, calculate the deficit
+                if dx > 0.0:
+                    if self.radius_multiplier > 1.:
+                        initial_wake_radius = r[i]+r[j]
+                    else:
+                        initial_wake_radius = r[j]
+
+                    z = initial_wake_radius/np.tan(bound_angle)               # distance from fulcrum to wake producing turbine
+
+                    offset = get_wake_offset(dx, bound_angle, yaw[j]*np.pi/180.0, Ct[j], initial_wake_radius)
+
+                    # deltaY = 0.0 #get_wake_offset(dx, bound_angle, yaw[j], Ct[j], initial_wake_radius)
+
+                    deficit = get_deficit(dy=dy, dx=dx,  offset=offset, bound_angle=bound_angle, alpha=alpha, z=z)
+
+                    loss[j] = deficit**2
+
+            totalLoss = np.sqrt(np.sum(loss)) #square root of the sum of the squares
+            hubVelocity[i] = (1.-totalLoss)*windSpeed #effective hub velocity
+            # print hubVelocity
+        unknowns['wtVelocity%i' % direction_id] = hubVelocity
+
 
 def conferenceWakeOverlap(X, Y, R):
 
@@ -709,13 +829,17 @@ class Jensen(Group):
         elif model_options['variant'] is 'Cosine':
             self.add('f_1', wakeOverlap(nTurbs, direction_id=direction_id), promotes=['*'])
             self.add('f_2', effectiveVelocityCosineOverlap(nTurbs, direction_id=direction_id), promotes=['*'])
-        elif model_options['variant'] is 'CosineNoOverlap_1R' or model_options['variant'] is 'CosineNoOverlap_2R':
+        elif (model_options['variant'] is 'CosineNoOverlap_1R') or (model_options['variant'] is 'CosineNoOverlap_2R'):
             self.add('f_1', effectiveVelocityCosineNoOverlap(nTurbs, direction_id=direction_id, options=model_options),
                      promotes=['*'])
         elif model_options['variant'] is 'Conference':
             self.add('f_1', effectiveVelocityConference(nTurbines=nTurbs, direction_id=direction_id), promotes=['*'])
-        elif model_options['variant'] is 'CosineYaw_1R' or model_options['variant'] is 'CosineYaw_2R':
-            self.add('f_1', JensenCosineYaw(nTurbines=nTurbs, direction_id=direction_id, options=model_options), promotes=['*'])
+        elif (model_options['variant'] is 'CosineYaw_1R') or (model_options['variant'] is 'CosineYaw_2R'):
+            self.add('f_1', JensenCosineYaw(nTurbines=nTurbs, direction_id=direction_id, options=model_options),
+                     promotes=['*'])
+        elif model_options['variant'] is 'CosineYawIntegral':
+            self.add('f_1', JensenCosineYawIntegral(nTurbines=nTurbs, direction_id=direction_id, options=model_options),
+                     promotes=['*'])
 
 
 if __name__=="__main__":
