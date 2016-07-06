@@ -14,7 +14,7 @@ def add_jensen_params_IndepVarComps(openmdao_object, model_options):
                         promotes=['*'])
 
     if model_options['variant'] is 'Cosine' or model_options['variant'] is 'CosineNoOverlap':
-        openmdao_object.add('jp1', IndepVarComp('model_params:cos_spread', 2.0, pass_by_obj=True,
+        openmdao_object.add('jp1', IndepVarComp('model_params:spread_angle', 2.0, pass_by_obj=True,
                                                 desc='spread of cosine smoothing factor (multiple of sum of wake and '
                                                      'rotor radii)'),
                             promotes=['*'])
@@ -157,7 +157,7 @@ class effectiveVelocityCosineOverlap(Component):
         self.add_param('turbineZ', val=np.zeros(nTurbines), units='m')
         self.add_param('rotorDiameter', val=np.zeros(nTurbines)+126.4, units='m')
         self.add_param('model_params:alpha', val=0.1)
-        self.add_param('model_params:cos_spread', val=2.0)
+        self.add_param('model_params:spread_angle', val=2.0)
         self.add_param('wind_speed', val=8.0, units='m/s')
         self.add_param('axialInduction', val=np.zeros(nTurbines)+1./3.)
         self.add_param('overlap', val=np.empty([nTurbines, nTurbines]))
@@ -171,7 +171,7 @@ class effectiveVelocityCosineOverlap(Component):
         turbineZ = params['turbineZ']
         r = 0.5*params['rotorDiameter']
         alpha = params['model_params:alpha']
-        cos_spread = params['model_params:cos_spread']
+        spread_angle = params['model_params:spread_angle']
         a = params['axialInduction']
         windSpeed = params['wind_speed']
         nTurbines = self.nTurbines
@@ -191,7 +191,7 @@ class effectiveVelocityCosineOverlap(Component):
                     dz = turbineZ[i] - turbineZ[j]
                     R = r[j]+dx*alpha
                     radiusLoc = np.sqrt(dy*dy+dz*dz)
-                    rmax = cos_spread*(R + r[j])
+                    rmax = spread_angle*(R + r[j])
                     cosFac = 0.5*(1.0 + np.cos(np.pi*radiusLoc/rmax))
 
                     loss[j] = overlap[i][j]*2.0*a[j]*(cosFac*r[j]/(r[j]+alpha*dx))**2 #Jensen's formula
@@ -234,7 +234,7 @@ class effectiveVelocityCosineNoOverlap(Component):
         self.add_param('turbineZ', val=np.zeros(nTurbines), units='m')
         self.add_param('rotorDiameter', val=np.zeros(nTurbines)+126.4, units='m')
         self.add_param('model_params:alpha', val=0.1)
-        self.add_param('model_params:cos_spread', val=20.0, desc="spreading angle in degrees")
+        self.add_param('model_params:spread_angle', val=20.0, desc="spreading angle in degrees")
         self.add_param('wind_speed', val=8.0, units='m/s')
         self.add_param('axialInduction', val=np.zeros(nTurbines)+1./3.)
 
@@ -247,7 +247,7 @@ class effectiveVelocityCosineNoOverlap(Component):
         turbineZ = params['turbineZ']
         r = 0.5*params['rotorDiameter']
         alpha = params['model_params:alpha']
-        bound_angle = params['model_params:cos_spread']
+        bound_angle = params['model_params:spread_angle']
         a = params['axialInduction']
         windSpeed = params['wind_speed']
         nTurbines = self.nTurbines
@@ -303,7 +303,7 @@ class effectiveVelocityConference(Component):
         self.add_param('turbineZ', val=np.zeros(nTurbines), units='m')
         self.add_param('rotorDiameter', val=np.zeros(nTurbines)+126.4, units='m')
         self.add_param('model_params:alpha', val=0.1)
-        self.add_param('model_params:cos_spread', val=0.1)
+        self.add_param('model_params:spread_angle', val=0.1)
         self.add_param('wind_speed', val=8.0, units='m/s')
         self.add_param('axialInduction', val=np.zeros(nTurbines)+1./3.)
 
@@ -446,7 +446,7 @@ class JensenCosineYaw(Component):
         self.add_param('turbineZ', val=np.zeros(nTurbines), units='m')
         self.add_param('rotorDiameter', val=np.zeros(nTurbines)+126.4, units='m')
         self.add_param('model_params:alpha', val=0.1)
-        self.add_param('model_params:cos_spread', val=20.0, desc="spreading angle in degrees")
+        self.add_param('model_params:spread_angle', val=20.0, desc="spreading angle in degrees")
         self.add_param('wind_speed', val=8.0, units='m/s')
         self.add_param('axialInduction', val=np.zeros(nTurbines)+1./3.)
 
@@ -480,7 +480,7 @@ class JensenCosineYaw(Component):
         r = 0.5*params['rotorDiameter']
         Ct = params['Ct']
         alpha = params['model_params:alpha']
-        bound_angle = params['model_params:cos_spread']
+        bound_angle = params['model_params:spread_angle']
         a = params['axialInduction']
         windSpeed = params['wind_speed']
         loss = np.zeros(nTurbines)
