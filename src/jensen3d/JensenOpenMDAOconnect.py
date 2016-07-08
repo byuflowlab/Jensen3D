@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.integrate import quad
 from openmdao.api import Component, Group, Problem, IndepVarComp
 
 from florisse.GeneralWindFarmComponents import WindFrame
@@ -563,39 +564,74 @@ class JensenCosineYawIntegral(Component):
 
     def solve_nonlinear(self, params, unknowns, resids):
 
-        def get_wake_offset(dx, wake_spread_angle, yaw, Ct, R):
+        def get_wake_offset(dx, wake_spread_angle, yaw, Ct, initial_wake_radius):
+            wake_spread_angle *= np.pi/180.0
+            # wake_spread_angle *= .5
+
+            yaw *= np.pi/180.0
              # calculate initial wake angle
             # initial_wake_angle = 0.5*Ct*np.sin(yaw)*np.cos(yaw)**2 + 3.0*np.pi/180.
+            # initial_wake_angle = 2.0*np.pi/180.0 + 0.5*Ct*np.sin(yaw)#*np.cos(yaw)**2
             initial_wake_angle = 0.5*Ct*np.sin(yaw)#*np.cos(yaw)**2
 
+            # print np.sin(yaw)
+
             # calculate distance from wake cone apex to wake producing turbine
-            x1 = R/np.tan(wake_spread_angle)
+            x1 = initial_wake_radius/np.tan(wake_spread_angle)
 
             # calculate x position with cone apex as origin
             x = x1 + dx
 
             # calculate wake offset due to yaw
             deltaY = -initial_wake_angle*(x1**2)/x + x1*initial_wake_angle
+            # print deltaY, initial_wake_angle, 0.5*Ct*np.sin(yaw), Ct, np.sin(yaw), np.cos(yaw)**2
             # print deltaY, initial_wake_angle, x1, Ct
-            # return deltaY + 4.5
+            # return deltaY + 18
             return deltaY
 
-        def get_deficit(dy, dx, offset, bound_angle, alpha, z):
+        def get_point_deficit(R, dx, bound_angle, alpha, initial_wake_radius, rotor_radius, axial_induction):
 
-            # calculate f(theta)
-            theta = np.arctan((dy - offset) / (dx + z))
+            # convert bound angle to radians
+            bound_angle *= np.pi/180.0
+
+            # distance from wake-cone fulcrum to wake producing turbine
+            z = initial_wake_radius/np.tan(bound_angle)
+
+            # angle from wake center line at fulcrum to radius of interest
+            theta = np.arctan(R / (dx + z))
 
             if -bound_angle < theta < bound_angle:
-                f_theta = (1. + np.cos(q*theta))/2.
+                # cos term of the smooth Jensen (see Jensen1983 eq.(3)) based on percent of full wake angle
+                f_theta = 0.5*(1. + np.cos(np.pi*theta/bound_angle))
             else:
+                # no deficit outside the wake
                 f_theta = 0.0
 
             # calculate velocity deficit
-            deficit = 2.0*a[j]*(f_theta*r[j]/(r[j]+alpha*dx))**2 #Jensen's formula
+            deficit = 2.0*axial_induction*(f_theta*rotor_radius/(rotor_radius+alpha*dx))**2 #Jensen's formula
 
             return deficit
 
-        # def get_deficit_integral(theta, rotor_diameter)
+        def get_deficit_integral(R, dx, d, bound_angle, alpha, rotor_radius, initial_wake_radius, axial_induction):
+
+            # if radius is very small, just set deficit to zero
+            if R < 1E-12:
+                # print "1"
+                integration_angle = 0
+            # if rotor overlaps the wake center then we have to account for full circular section of the wake
+            elif (d < rotor_radius) and (R < abs(rotor_radius-d)):
+                # print "2"
+                integration_angle = 2.0*np.pi
+            # if rotor does not overlap the wake center, then obtain arc angle from below equation derived from  the
+            # geometry of two overlapping circles
+            else:
+                # print "3"
+                integration_angle = 2.0*np.arccos((d**2+R**2-rotor_radius**2)/(2.*d*R))
+
+            # get the deficit at the relevant radial location
+            deficit = get_point_deficit(R, dx, bound_angle, alpha, initial_wake_radius, rotor_radius, axial_induction)
+            # return the thing we are integrating
+            return deficit*integration_angle*R
 
         nTurbines = self.nTurbines
         direction_id = self.direction_id
@@ -612,9 +648,6 @@ class JensenCosineYawIntegral(Component):
         loss = np.zeros(nTurbines)
         hubVelocity = np.zeros(nTurbines)
 
-        bound_angle *= np.pi/180.0                                      # convert bound angle to radians
-        q = np.pi/bound_angle                                           # factor inside the cos term of the smooth Jensen (see Jensen1983 eq.(3))
-
         for i in range(nTurbines):
             loss[:] = 0.0
             for j in range(nTurbines):
@@ -622,18 +655,30 @@ class JensenCosineYawIntegral(Component):
                 dy = turbineYw[j] - turbineYw[i]
                 # if turbine j is upstream, calculate the deficit
                 if dx > 0.0:
+                    # self.radius_multiplier = 1.0
                     if self.radius_multiplier > 1.:
                         initial_wake_radius = r[i]+r[j]
                     else:
                         initial_wake_radius = r[j]
 
-                    z = initial_wake_radius/np.tan(bound_angle)               # distance from fulcrum to wake producing turbine
+                    # print dx/(2.*initial_wake_radius), dy/(2.*initial_wake_radius), 2.*initial_wake_radius, self.radius_multiplier
 
-                    offset = get_wake_offset(dx, bound_angle, yaw[j]*np.pi/180.0, Ct[j], initial_wake_radius)
+                    offset = get_wake_offset(dx, bound_angle, yaw[j], Ct[j], initial_wake_radius)
 
                     # deltaY = 0.0 #get_wake_offset(dx, bound_angle, yaw[j], Ct[j], initial_wake_radius)
+                    d = abs(dy - offset)
+                    # print d/(2.*r[i]), offset/(2.*r[i]), yaw
+                    if d < 1E-6:
+                        deficit, _ = quad(get_deficit_integral, 0.0, r[i], args=(dx, d, bound_angle, alpha, r[j], initial_wake_radius, a[j]))
+                    elif d < r[i]:
+                        deficit_0, _ = quad(get_deficit_integral, 0.0, r[i]-d, args=(dx, d, bound_angle, alpha, r[j], initial_wake_radius, a[j]))
+                        deficit_1, _ = quad(get_deficit_integral, r[i]-d, r[i]+d, args=(dx, d, bound_angle, alpha, r[j], initial_wake_radius, a[j]))
+                        deficit = deficit_0 + deficit_1
+                    elif d >= r[i]:
+                        deficit, _ = quad(get_deficit_integral, d-r[i], d+r[i], args=(dx, d, bound_angle, alpha, r[j], initial_wake_radius, a[j]))
+                    # deficit = get_point_deficit(d, dx, bound_angle, alpha, initial_wake_radius, r[j], a[j])
 
-                    deficit = get_deficit(dy=dy, dx=dx,  offset=offset, bound_angle=bound_angle, alpha=alpha, z=z)
+                    deficit /= np.pi*r[i]**2
 
                     loss[j] = deficit**2
 
@@ -838,6 +883,9 @@ class Jensen(Group):
             self.add('f_1', JensenCosineYaw(nTurbines=nTurbs, direction_id=direction_id, options=model_options),
                      promotes=['*'])
         elif model_options['variant'] is 'CosineYawIntegral':
+            self.add('f_1', JensenCosineYawIntegral(nTurbines=nTurbs, direction_id=direction_id, options=model_options),
+                     promotes=['*'])
+        elif model_options['variant'] is 'CosineYaw':
             self.add('f_1', JensenCosineYawIntegral(nTurbines=nTurbs, direction_id=direction_id, options=model_options),
                      promotes=['*'])
 
