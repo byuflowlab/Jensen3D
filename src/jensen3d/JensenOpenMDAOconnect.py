@@ -3,7 +3,7 @@ from scipy.integrate import quad
 from openmdao.api import Component, Group, Problem, IndepVarComp
 
 from florisse.GeneralWindFarmComponents import WindFrame
-
+import _jensen
 import time
 
 
@@ -22,20 +22,20 @@ def add_jensen_params_IndepVarComps(openmdao_object, model_options):
 
 
 # this component is to find the fraction of the all the rotors that are in the wakes of the other turbines
-class wakeOverlap(Component):
+class Jensen_comp(Component):
     
     def __init__(self, nTurbines, direction_id=0):
-        super(wakeOverlap, self).__init__()
+        super(Jensen_comp, self).__init__()
 
-        self.fd_options['form'] = 'central'
-        self.fd_options['step_size'] = 1.0e-6
-        self.fd_options['step_type'] = 'relative'
-        self.fd_options['force_fd'] = True
+        self.deriv_options['form'] = 'central'
+        self.deriv_options['step_size'] = 1.0e-6
+        self.deriv_options['type'] = 'fd'
+        self.deriv_options['step_calc'] = 'relative'
 
         self.nTurbines = nTurbines
+        self.direction_id = direction_id
         self.add_param('turbineXw', val=np.zeros(nTurbines), units='m')
         self.add_param('turbineYw', val=np.zeros(nTurbines), units='m')
-        self.add_param('turbineZ', val=np.zeros(nTurbines), units='m')
         self.add_param('rotorDiameter', val=np.zeros(nTurbines)+126.4, units='m')
 
         #unused but required for compatibility
@@ -46,109 +46,33 @@ class wakeOverlap(Component):
         self.add_param('wakeOverlapTRel', np.zeros(nTurbines*nTurbines))
         self.add_param('Ct', np.zeros(nTurbines))
 
-
         self.add_param('model_params:alpha', val=0.1)
-
-        self.add_output('overlap', val=np.eye(nTurbines))
-
-    def solve_nonlinear(self, params, unknowns, resids):
         
-        turbineX = params['turbineXw']
-        turbineY = params['turbineYw']
-        turbineZ = params['turbineZ']
-        r = 0.5*params['rotorDiameter']
-        alpha = params['model_params:alpha']
-        nTurbines = self.nTurbines
-        
-        overlap_fraction = np.eye(nTurbines)
-        for i in range(nTurbines):
-            for j in range(nTurbines): #overlap_fraction[i][j] is the fraction of the area of turbine i in the wake from turbine j
-                dx = turbineX[i]-turbineX[j]
-                dy = abs(turbineY[i]-turbineY[j])
-                dz = abs(turbineZ[i]-turbineZ[j])
-                d = np.sqrt(dy**2+dz**2)
-                R = r[j]+dx*alpha
-                A = r[i]**2*np.pi
-                overlap_area = 0
-                if dx <= 0: #if turbine i is in front of turbine j
-                    overlap_fraction[i][j] = 0.0
-                else:
-                    if d <= R-r[i]: #if turbine i is completely in the wake of turbine j
-                        if A <= np.pi*R**2: #if the area of turbine i is smaller than the wake from turbine j
-                            overlap_fraction[i][j] = 1.0
-                        else: #if the area of turbine i is larger than tha wake from turbine j
-                            overlap_fraction[i][j] = np.pi*R**2/A
-                    elif d >= R+r[i]: #if turbine i is completely out of the wake
-                        overlap_fraction[i][j] = 0.0
-                    else: #if turbine i overlaps partially with the wake
-                        overlap_area = r[i]**2.*np.arccos((d**2.+r[i]**2.-R**2.)/(2.0*d*r[i]))+\
-                                       R**2.*np.arccos((d**2.+R**2.-r[i]**2.)/(2.0*d*R))-\
-                                       0.5*np.sqrt((-d+r[i]+R)*(d+r[i]-R)*(d-r[i]+R)*(d+r[i]+R))
-                        overlap_fraction[i][j] = overlap_area/A
-                
-        # print "Overlap Fraction Matrix: ", overlap_fraction
-        # print overlap_fraction
-        unknowns['overlap'] = overlap_fraction
-
-
-# solve for the effective wind velocity at each turbine
-class effectiveVelocity(Component):
-
-    def __init__(self, nTurbines, direction_id=0):
-        super(effectiveVelocity, self).__init__()
-        
-        self.fd_options['form'] = 'central'
-        self.fd_options['step_size'] = 1.0e-6
-        self.fd_options['step_type'] = 'relative'
-        self.fd_options['force_fd'] = True
-        
-        self.nTurbines = nTurbines
-        self.direction_id = direction_id
-
-        self.add_param('turbineXw', val=np.zeros(nTurbines), units='m')
-        self.add_param('rotorDiameter', val=np.zeros(nTurbines)+126.4, units='m')
-        self.add_param('model_params:alpha', val=0.1)
         self.add_param('wind_speed', val=8.0, units='m/s')
         self.add_param('axialInduction', val=np.zeros(nTurbines)+1./3.)
-        self.add_param('overlap', val=np.empty([nTurbines, nTurbines]))
 
         self.add_output('wtVelocity%i' % direction_id, val=np.zeros(nTurbines), units='m/s')
 
+
     def solve_nonlinear(self, params, unknowns, resids):
-    
         
-        turbineX = params['turbineXw']
-        r = 0.5*params['rotorDiameter']
-        alpha = params['model_params:alpha']
-        a = params['axialInduction']
-        windSpeed = params['wind_speed']
+
         nTurbines = self.nTurbines
         direction_id = self.direction_id
-        loss = np.zeros(nTurbines)
-        hubVelocity = np.zeros(nTurbines)
-        overlap = params['overlap']
-    
-        for i in range(nTurbines):
-            loss[:] = 0.0
-            for j in range(nTurbines):
-                dx = turbineX[i]-turbineX[j]
-                if dx > 0:
-                    loss[j] = overlap[i][j]*2.0*a[j]*(r[j]/(r[j]+alpha*dx))**2 #Jensen's formula
-                    loss[j] = loss[j]**2
-            totalLoss = np.sqrt(np.sum(loss)) #square root of the sum of the squares
-            hubVelocity[i] = (1-totalLoss)*windSpeed #effective hub velocity
-        unknowns['wtVelocity%i' % direction_id] = hubVelocity
 
+        unknowns['wtVelocity%i' % direction_id] = _jensen.jensen(params['turbineXw'],
+			params['turbineYw'], params['rotorDiameter'], 
+			params['model_params:alpha'], params['wind_speed'], params['axialInduction']) 
 
 class effectiveVelocityCosineOverlap(Component):
 
     def __init__(self, nTurbines, direction_id=0):
         super(effectiveVelocityCosineOverlap, self).__init__()
 
-        self.fd_options['form'] = 'central'
-        self.fd_options['step_size'] = 1.0e-6
-        self.fd_options['step_type'] = 'relative'
-        self.fd_options['force_fd'] = True
+        self.deriv_options['type'] = 'fd'
+        self.deriv_options['form'] = 'central'
+        self.deriv_options['step_size'] = 1.0e-6
+        self.deriv_options['step_calc'] = 'relative'
 
         self.nTurbines = nTurbines
         self.direction_id = direction_id
@@ -208,10 +132,10 @@ class effectiveVelocityCosineNoOverlap(Component):
     def __init__(self, nTurbines, direction_id=0, options=None):
         super(effectiveVelocityCosineNoOverlap, self).__init__()
 
-        self.fd_options['form'] = 'central'
-        self.fd_options['step_size'] = 1.0e-6
-        self.fd_options['step_type'] = 'relative'
-        self.fd_options['force_fd'] = True
+        self.deriv_options['type'] = 'fd'
+        self.deriv_options['form'] = 'central'
+        self.deriv_options['step_size'] = 1.0e-6
+        self.deriv_options['step_calc'] = 'relative'
 
         self.nTurbines = nTurbines
         self.direction_id = direction_id
@@ -282,10 +206,10 @@ class effectiveVelocityConference(Component):
     def __init__(self, nTurbines, direction_id=0):
         super(effectiveVelocityConference, self).__init__()
 
-        self.fd_options['form'] = 'central'
-        self.fd_options['step_size'] = 1.0e-6
-        self.fd_options['step_type'] = 'relative'
-        self.fd_options['force_fd'] = True
+        self.deriv_options['type'] = 'fd'
+        self.deriv_options['form'] = 'central'
+        self.deriv_options['step_size'] = 1.0e-6
+        self.deriv_options['step_calc'] = 'relative'
 
         self.nTurbines = nTurbines
         self.direction_id = direction_id
@@ -421,10 +345,10 @@ class JensenCosineYaw(Component):
     def __init__(self, nTurbines, direction_id=0, options=None):
         super(JensenCosineYaw, self).__init__()
 
-        self.fd_options['form'] = 'central'
-        self.fd_options['step_size'] = 1.0e-6
-        self.fd_options['step_type'] = 'relative'
-        self.fd_options['force_fd'] = True
+        self.deriv_options['type'] = 'fd'
+        self.deriv_options['form'] = 'central'
+        self.deriv_options['step_size'] = 1.0e-6
+        self.deriv_options['step_calc'] = 'relative'
 
         self.nTurbines = nTurbines
         self.direction_id = direction_id
@@ -530,10 +454,9 @@ class JensenCosineYawIntegral(Component):
     def __init__(self, nTurbines, direction_id=0, options=None):
         super(JensenCosineYawIntegral, self).__init__()
 
-        self.fd_options['form'] = 'central'
-        self.fd_options['step_size'] = 1.0e-6
-        self.fd_options['step_type'] = 'relative'
-        self.fd_options['force_fd'] = True
+        self.deriv_options['type'] = 'fd'
+        self.deriv_options['form'] = 'central'
+        self.deriv_options['step_size'] = 1.0e-6
 
         self.nTurbines = nTurbines
         self.direction_id = direction_id
@@ -869,11 +792,11 @@ class Jensen(Group):
             model_options = {'variant': 'Original'}
 
         if model_options['variant'] is 'Original':
-            self.add('f_1', wakeOverlap(nTurbs, direction_id=direction_id), promotes=['*'])
-            self.add('f_2', effectiveVelocity(nTurbs, direction_id=direction_id), promotes=['*'])
-        elif model_options['variant'] is 'Cosine':
-            self.add('f_1', wakeOverlap(nTurbs, direction_id=direction_id), promotes=['*'])
-            self.add('f_2', effectiveVelocityCosineOverlap(nTurbs, direction_id=direction_id), promotes=['*'])
+            self.add('f_1', Jensen_comp(nTurbs, direction_id=direction_id), promotes=['*'])
+            #self.add('f_2', effectiveVelocity(nTurbs, direction_id=direction_id), promotes=['*'])
+        #elif model_options['variant'] is 'Cosine':
+            #self.add('f_1', wakeOverlap(nTurbs, direction_id=direction_id), promotes=['*'])
+            #self.add('f_2', effectiveVelocityCosineOverlap(nTurbs, direction_id=direction_id), promotes=['*'])
         elif (model_options['variant'] is 'CosineNoOverlap_1R') or (model_options['variant'] is 'CosineNoOverlap_2R'):
             self.add('f_1', effectiveVelocityCosineNoOverlap(nTurbs, direction_id=direction_id, options=model_options),
                      promotes=['*'])
