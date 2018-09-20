@@ -212,8 +212,7 @@ if __name__=="__main__":
     prob.driver.add_desvar('z', lower=np.ones(nTurbs)*50, upper=np.ones(nTurbs)*150)
     prob.driver.add_objective('hubVelocity')
 
-    
-    
+    prob.setup()
 
 	#run the problem
     print 'start Jensen run'
