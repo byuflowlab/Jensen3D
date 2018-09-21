@@ -11,9 +11,9 @@ class wakeOverlap(Component):
 	def __init__(self, nTurbs):
 		super(wakeOverlap, self).__init__()
 
-		self.fd_options['form'] = 'central'
-		self.fd_options['step_size'] = 1.0e-6
-		self.fd_options['step_type'] = 'relative'
+		self.deriv_options['form'] = 'central'
+		self.deriv_options['step_size'] = 1.0e-6
+		self.deriv_options['step_calc'] = 'relative'
 
 		self.nTurbs = nTurbs
 		self.add_param('xr', val=np.zeros(nTurbs))
@@ -68,9 +68,9 @@ class effectiveVelocity(Component):
 	def __init__(self, nTurbs):
 		super(effectiveVelocity, self).__init__()
 		
-		self.fd_options['form'] = 'central'
-		self.fd_options['step_size'] = 1.0e-6
-		self.fd_options['step_type'] = 'relative'
+		self.deriv_options['form'] = 'central'
+		self.deriv_options['step_size'] = 1.0e-6
+		self.deriv_options['step_calc'] = 'relative'
 		
 		self.nTurbs = nTurbs
 		self.add_param('xr', val=np.zeros(nTurbs))
@@ -129,9 +129,9 @@ class rotate(Component):
     def __init__(self, nTurbs):
         super(rotate, self).__init__()
 
-        self.fd_options['form'] = 'central'
-        self.fd_options['step_size'] = 1.0e-6
-        self.fd_options['step_type'] = 'relative'
+        self.deriv_options['form'] = 'central'
+        self.deriv_options['step_size'] = 1.0e-6
+        self.deriv_options['step_calc'] = 'relative'
 
         self.add_param('x', val=np.zeros(nTurbs))
         self.add_param('y', val=np.zeros(nTurbs))
@@ -212,8 +212,6 @@ if __name__=="__main__":
     prob.driver.add_desvar('z', lower=np.ones(nTurbs)*50, upper=np.ones(nTurbs)*150)
     prob.driver.add_objective('hubVelocity')
 
-    
-    
 
 	#run the problem
     print 'start Jensen run'
