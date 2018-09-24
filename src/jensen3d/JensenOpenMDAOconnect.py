@@ -2,7 +2,7 @@ import numpy as np
 from scipy.integrate import quad
 from openmdao.api import Component, Group, Problem, IndepVarComp
 
-from florisse.GeneralWindFarmComponents import WindFrame
+from plantenergy.GeneralWindFarmComponents import WindFrame
 import _jensen
 import time
 
