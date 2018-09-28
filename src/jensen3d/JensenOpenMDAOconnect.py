@@ -8,6 +8,26 @@ import time
 
 from JensenOpenMDAOconnect_extension import *
 
+def get_cosine_factor_original(X, Y, R0, bound_angle=20.0):
+
+    n = np.size(X)
+    bound_angle = bound_angle*np.pi/180.0
+    # theta = np.zeros((n, n), dtype=np.float)      # angle of wake from fulcrum
+    f_theta = np.zeros((n, n), dtype=np.float)      # smoothing values for smoothing
+    q = np.pi/bound_angle                           # factor inside the cos term of the smooth Jensen (see Jensen1983 eq.(3))
+
+    for i in range(0, n):
+        for j in range(0, n):
+            if X[i] < X[j]:
+                z = R0/np.tan(bound_angle)               # distance from fulcrum to wake producing turbine
+
+                theta = np.arctan((Y[j] - Y[i]) / (X[j] - X[i] + z))
+
+                if -bound_angle < theta < bound_angle:
+
+                    f_theta[i][j] = (1. + np.cos(q*theta))/2.
+
+    return f_theta
 
 def add_jensen_params_IndepVarComps(openmdao_object, model_options):
 
@@ -27,7 +47,7 @@ def add_jensen_params_IndepVarComps(openmdao_object, model_options):
 class JensenTopHat(Component):
     
     def __init__(self, nTurbines, direction_id=0):
-        super(Jensen_comp, self).__init__()
+        super(JensenTopHat, self).__init__()
 
         self.deriv_options['form'] = 'central'
         self.deriv_options['step_size'] = 1.0e-6
@@ -72,7 +92,7 @@ class JensenTopHat(Component):
 class JensenCosine(Component):
 
     def __init__(self, nTurbines, direction_id=0, options=None):
-        super(effectiveVelocityCosineNoOverlap, self).__init__()
+        super(JensenCosine, self).__init__()
 
         self.deriv_options['type'] = 'fd'
         self.deriv_options['form'] = 'central'
@@ -81,10 +101,10 @@ class JensenCosine(Component):
 
         self.nTurbines = nTurbines
         self.direction_id = direction_id
-        if options is None:
-            self.radius_multiplier = 1.0
-        else:
+        try:
             self.radius_multiplier = options['radius multiplier']
+        except:
+            self.radius_multiplier = 1.0
 
 
         #unused but required for compatibility
@@ -152,7 +172,7 @@ class Jensen(Group):
         try:
             model_options['variant']
         except:
-            model_options = {'variant': 'Original'}
+            model_options = {'variant': 'Tophat'}
 
         # typical variants
         if model_options['variant'] is 'TopHat':
@@ -161,8 +181,8 @@ class Jensen(Group):
             self.add('f_1', JensenCosine(nTurbs, direction_id=direction_id, options=model_options),
                  promotes=['*'])
 
+        # non-typical variants for various research purposes
         else:
-            # non-typical variants for various research purposes
                 #self.add('f_2', effectiveVelocity(nTurbs, direction_id=direction_id), promotes=['*'])
             #elif model_options['variant'] is 'Cosine':
                 #self.add('f_1', wakeOverlap(nTurbs, direction_id=direction_id), promotes=['*'])

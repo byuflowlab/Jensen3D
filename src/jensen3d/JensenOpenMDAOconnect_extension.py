@@ -661,26 +661,7 @@ def conferenceWakeOverlap_tune(X, Y, R, boundAngle):
     return f_theta
 
 
-def get_cosine_factor_original(X, Y, R0, bound_angle=20.0):
 
-    n = np.size(X)
-    bound_angle = bound_angle*np.pi/180.0
-    # theta = np.zeros((n, n), dtype=np.float)      # angle of wake from fulcrum
-    f_theta = np.zeros((n, n), dtype=np.float)      # smoothing values for smoothing
-    q = np.pi/bound_angle                           # factor inside the cos term of the smooth Jensen (see Jensen1983 eq.(3))
-
-    for i in range(0, n):
-        for j in range(0, n):
-            if X[i] < X[j]:
-                z = R0/np.tan(bound_angle)               # distance from fulcrum to wake producing turbine
-
-                theta = np.arctan((Y[j] - Y[i]) / (X[j] - X[i] + z))
-
-                if -bound_angle < theta < bound_angle:
-
-                    f_theta[i][j] = (1. + np.cos(q*theta))/2.
-
-    return f_theta
 
 
 def conferenceWakeOverlap_bk(X, Y, R):
