@@ -8,24 +8,41 @@ import time
 
 from JensenOpenMDAOconnect_extension import *
 
+# Function Inputs:
+#   X is an array containing the x-positions of all the turbines in the wind farm.
+#   Y is an array containing the y-positions of all the turbines in the wind farm.
+#   R0 is a scalar containing the radius of the 0th turbine scaled by "self.radius_multiplier".
+#   bound_angle appears to be a scalar containing the angle at which the wake is spreading. Its
+#       default value appears to be 20 degrees, but it's written in such a way that it can be
+#       altered.
+# Function Outputs:
+#   f_theta = Array of all the cosine factors for each combination of turbines. For turbines
+#       that aren't in another turbine's wake, that value of f_theta remains at zero.
 def get_cosine_factor_original(X, Y, R0, bound_angle=20.0):
 
     n = np.size(X)
-    bound_angle = bound_angle*np.pi/180.0
+    bound_angle = bound_angle*np.pi/180.0           # convert bound_angle from degrees to radians
     # theta = np.zeros((n, n), dtype=np.float)      # angle of wake from fulcrum
     f_theta = np.zeros((n, n), dtype=np.float)      # smoothing values for smoothing
     q = np.pi/bound_angle                           # factor inside the cos term of the smooth Jensen (see Jensen1983 eq.(3))
 
+    # Calculate the cosine factor on the jth turbine from each ith turbine.
     for i in range(0, n):
         for j in range(0, n):
+
+            # Only take action if the jth turbine is downstream (has greater x) than the ith turbine.
             if X[i] < X[j]:
                 z = R0/np.tan(bound_angle)               # distance from fulcrum to wake producing turbine
 
+                # angle in x-y plane from ith turbine to jth turbine. Measured positive counter-clockwise from positive
+                # x-axis. 'z' included because the triangle actually starts at a distance 'z' in the negative
+                # x-direction from the wake-producing turbine.
                 theta = np.arctan((Y[j] - Y[i]) / (X[j] - X[i] + z))
 
+                # If theta is less than the bound angle, that means the jth turbine is within the ith turbine's wake.
                 if -bound_angle < theta < bound_angle:
 
-                    f_theta[i][j] = (1. + np.cos(q*theta))/2.
+                    f_theta[i][j] = (1. + np.cos(q*theta))/2.   # cosine factor from Jensen's paper (1983, eq. 3).
 
     return f_theta
 
@@ -60,7 +77,7 @@ class JensenTopHat(Component):
         self.add_param('turbineYw', val=np.zeros(nTurbines), units='m')
         self.add_param('rotorDiameter', val=np.zeros(nTurbines)+126.4, units='m')
 
-        #unused but required for compatibility
+        # Unused but required for compatibility
         self.add_param('yaw%i' % direction_id, np.zeros(nTurbines), units='deg')
         self.add_param('hubHeight', np.zeros(nTurbines), units='m')
         self.add_param('wakeCentersYT', np.zeros(nTurbines*nTurbines), units='m')
@@ -145,6 +162,7 @@ class JensenCosine(Component):
         f_theta = get_cosine_factor_original(turbineXw, turbineYw, R0=r[0]*self.radius_multiplier, bound_angle=bound_angle)
         # print f_theta
 
+        # Calculate the hub velocity of the wind at the ith turbine downwind of the jth turbine.
         for i in range(nTurbines):
             loss[:] = 0.0
             for j in range(nTurbines):
@@ -152,7 +170,7 @@ class JensenCosine(Component):
                 # if turbine j is upstream, calculate the deficit
                 if dx > 0.0:
 
-                  # calculate velocity deficit
+                  # calculate velocity deficit - looks like it's currently squaring the cosine factor.
                   loss[j] = 2.0*a[j]*(f_theta[j][i]*r[j]/(r[j]+alpha*dx))**2 #Jensen's formula
 
                   loss[j] = loss[j]**2

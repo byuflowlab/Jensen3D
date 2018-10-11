@@ -34,14 +34,17 @@ class wakeOverlap(Component):
 		nTurbs = len(x)
 		
 		overlap_fraction = np.eye(nTurbs)
+
+		# i represents the index for the current turbine. j represents the index for other turbines.
+		# Loops to find the overlap fraction of the jth turbine's wake on the ith turbine.
 		for i in range(nTurbs):
 			for j in range(nTurbs): #overlap_fraction[i][j] is the fraction of the area of turbine i in the wake from turbine j
-				dx = x[i]-x[j]
-				dy = abs(y[i]-y[j])
-				dz = abs(z[i]-z[j])
-				d = np.sqrt(dy**2+dz**2)
-				R = r[j]+dx*alpha
-				A = r[i]**2*np.pi
+				dx = x[i]-x[j]				# x-distance between ith and jth turbines.
+				dy = abs(y[i]-y[j])			# y-distance between ith and jth turbines.
+				dz = abs(z[i]-z[j])			# z-distance (elevation change) between ith and jth turbines.
+				d = np.sqrt(dy**2+dz**2)	# resultant distance on y-z plane between ith and jth turbines.
+				R = r[j]+dx*alpha			# radius of wake at distance dx downstream from jth turbine.
+				A = r[i]**2*np.pi			# wind-swept area of ith turbine.
 				overlap_area = 0
 				if dx <= 0: #if turbine i is in front of turbine j
 					overlap_fraction[i][j] = 0.0
@@ -181,7 +184,7 @@ if __name__=="__main__":
     x = np.array([0,500,1000])
     y = np.array([0,0,0])
     z = np.array([150, 250, 350])
-	
+
     # initialize input variable arrays
     nTurbs = np.size(x)
     rotorRadius = np.ones(nTurbs)*40.
