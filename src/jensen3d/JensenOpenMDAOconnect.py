@@ -142,6 +142,9 @@ class JensenCosine(Component):
         self.add_param('wind_speed', val=8.0, units='m/s')
         self.add_param('axialInduction', val=np.zeros(nTurbines)+1./3.)
 
+        # Spencer M's edit for WEC: add in xi (i.e., relaxation factor) as a parameter.
+        self.add_param('relaxationFactor', val=3.0)
+
         self.add_output('wtVelocity%i' % direction_id, val=np.zeros(nTurbines), units='m/s')
 
     def solve_nonlinear(self, params, unknowns, resids):
@@ -159,6 +162,9 @@ class JensenCosine(Component):
         loss = np.zeros(nTurbines)
         hubVelocity = np.zeros(nTurbines)
 
+        # Save the relaxation factor from the params dictionary into a variable to be used in this function.
+        relaxationFactor = params['relaxationFactor']
+
         f_theta = get_cosine_factor_original(turbineXw, turbineYw, R0=r[0]*self.radius_multiplier, bound_angle=bound_angle)
         # print f_theta
 
@@ -171,7 +177,8 @@ class JensenCosine(Component):
                 if dx > 0.0:
 
                   # calculate velocity deficit - looks like it's currently squaring the cosine factor.
-                  loss[j] = 2.0*a[j]*(f_theta[j][i]*r[j]/(r[j]+alpha*dx))**2 #Jensen's formula
+                  loss[j] = 2.0*a[j]*(f_theta[j][i]*r[j]/(relaxationFactor*r[j]+alpha*dx))**2 #Jensen's formula
+                  # loss[j] = 2.0*a[j]*f_theta[j][i]*(r[j]/(relaxationFactor*r[j]+alpha*dx))**2 #Jensen's formula
 
                   loss[j] = loss[j]**2
 
@@ -240,6 +247,9 @@ if __name__=="__main__":
     # Define flow properties
     windSpeed = 8.1
     wind_direction = 270.0
+
+    # Tried inserting the WEC relaxation factor here to see if it would work, but still getting error.
+    relaxationFactor = np.arange(3.0, 0.75, -0.25)
 
     # set model options
     # model_options = {'variant': 'Original'}
