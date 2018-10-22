@@ -18,7 +18,7 @@ from JensenOpenMDAOconnect_extension import *
 # Function Outputs:
 #   f_theta = Array of all the cosine factors for each combination of turbines. For turbines
 #       that aren't in another turbine's wake, that value of f_theta remains at zero.
-def get_cosine_factor_original(X, Y, R0, bound_angle=20.0):
+def get_cosine_factor_original(X, Y, R0, bound_angle=20.0, relaxationFactor=1.0):
 
     n = np.size(X)
     bound_angle = bound_angle*np.pi/180.0           # convert bound_angle from degrees to radians
@@ -26,23 +26,35 @@ def get_cosine_factor_original(X, Y, R0, bound_angle=20.0):
     f_theta = np.zeros((n, n), dtype=np.float)      # smoothing values for smoothing
     q = np.pi/bound_angle                           # factor inside the cos term of the smooth Jensen (see Jensen1983 eq.(3))
 
-    # Calculate the cosine factor on the jth turbine from each ith turbine.
+    # Idea for relaxation factor requires new angle, gamma. Units in radians.
+    gamma = (np.pi/2.0) - bound_angle
+
+    # Calculate the cosine factor on the jth turbine from each ith turbine. Each row represents the cosine factor on
+    # each turbine from the ith turbine, and each column represents the cosine factor on the jth turbine from each
+    # ith turbine.
     for i in range(0, n):
         for j in range(0, n):
 
             # Only take action if the jth turbine is downstream (has greater x) than the ith turbine.
             if X[i] < X[j]:
-                z = R0/np.tan(bound_angle)               # distance from fulcrum to wake producing turbine
+                # z = R0/np.tan(bound_angle)               # distance from fulcrum to wake producing turbine
+                # z = (R0 * relaxationFactor)/np.tan(bound_angle)
+                z = (relaxationFactor * R0 * np.sin(gamma))/np.sin(bound_angle) # this eq. does the same thing as the
+                #  equation direction above
 
                 # angle in x-y plane from ith turbine to jth turbine. Measured positive counter-clockwise from positive
                 # x-axis. 'z' included because the triangle actually starts at a distance 'z' in the negative
                 # x-direction from the wake-producing turbine.
+                # THETA ACTUALLY MEASURED BETWEEN THE FULCRUM OF THE WAKE AND THE DOWNSTREAM TURBINE.
                 theta = np.arctan((Y[j] - Y[i]) / (X[j] - X[i] + z))
 
                 # If theta is less than the bound angle, that means the jth turbine is within the ith turbine's wake.
+                # else, f_theta[i, j] remains at zero.
                 if -bound_angle < theta < bound_angle:
 
-                    f_theta[i][j] = (1. + np.cos(q*theta))/2.   # cosine factor from Jensen's paper (1983, eq. 3).
+                    # f_theta[i][j] = (1. + np.cos((q*theta)/relaxationFactor))/2.    # cosine factor from Jensen's
+                                                                                    # paper (1983, eq. 3).
+                    f_theta[i][j] = (1. + np.cos(q*theta))/2.
 
     return f_theta
 
@@ -143,12 +155,12 @@ class JensenCosine(Component):
         self.add_param('axialInduction', val=np.zeros(nTurbines)+1./3.)
 
         # Spencer M's edit for WEC: add in xi (i.e., relaxation factor) as a parameter.
-        self.add_param('relaxationFactor', val=3.0)
+        self.add_param('model_params:relaxationFactor', val=1.0)
+        # self.add_param('relaxationFactor', val=np.arange(3.0, 0.75, -0.25))
 
         self.add_output('wtVelocity%i' % direction_id, val=np.zeros(nTurbines), units='m/s')
 
     def solve_nonlinear(self, params, unknowns, resids):
-
         turbineXw = params['turbineXw']
         turbineYw = params['turbineYw']
         turbineZ = params['turbineZ']
@@ -163,9 +175,10 @@ class JensenCosine(Component):
         hubVelocity = np.zeros(nTurbines)
 
         # Save the relaxation factor from the params dictionary into a variable to be used in this function.
-        relaxationFactor = params['relaxationFactor']
+        relaxationFactor = params['model_params:relaxationFactor']
 
-        f_theta = get_cosine_factor_original(turbineXw, turbineYw, R0=r[0]*self.radius_multiplier, bound_angle=bound_angle)
+        f_theta = get_cosine_factor_original(turbineXw, turbineYw, R0=r[0]*self.radius_multiplier,
+                                             bound_angle=bound_angle, relaxationFactor=relaxationFactor)
         # print f_theta
 
         # Calculate the hub velocity of the wind at the ith turbine downwind of the jth turbine.
@@ -177,8 +190,8 @@ class JensenCosine(Component):
                 if dx > 0.0:
 
                   # calculate velocity deficit - looks like it's currently squaring the cosine factor.
-                  loss[j] = 2.0*a[j]*(f_theta[j][i]*r[j]/(relaxationFactor*r[j]+alpha*dx))**2 #Jensen's formula
-                  # loss[j] = 2.0*a[j]*f_theta[j][i]*(r[j]/(relaxationFactor*r[j]+alpha*dx))**2 #Jensen's formula
+                  loss[j] = 2.0*a[j]*(f_theta[j][i]*r[j]/(r[j]+alpha*dx))**2 #Jensen's formula
+                  # loss[j] = 2.0*a[j]*f_theta[j][i]*(r[j]/(r[j]+alpha*dx))**2 #Jensen's formula
 
                   loss[j] = loss[j]**2
 

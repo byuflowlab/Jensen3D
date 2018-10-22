@@ -209,6 +209,8 @@ if __name__=="__main__":
 
     prob.driver = ScipyOptimizer()
     prob.driver.options['optimizer'] = 'SLSQP'
+    # prob.driver.options['optimizer'] = 'SNOPT'
+    # prob.driver.options['optimizer'] = 'garbage'
 
     prob.driver.add_desvar('x', lower=np.ones(nTurbs)*0, upper=np.ones(nTurbs)*1000)
     prob.driver.add_desvar('y', lower=np.ones(nTurbs)*0, upper=np.ones(nTurbs)*1000)
