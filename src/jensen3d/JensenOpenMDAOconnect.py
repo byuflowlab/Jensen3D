@@ -3,7 +3,7 @@ from scipy.integrate import quad
 from openmdao.api import Component, Group, Problem, IndepVarComp
 
 from plantenergy.GeneralWindFarmComponents import WindFrame
-import _jensen
+import _jensen, _jensen2
 import time
 
 from JensenOpenMDAOconnect_extension import *
@@ -201,6 +201,77 @@ class JensenCosine(Component):
         unknowns['wtVelocity%i' % direction_id] = hubVelocity
 
 
+class JensenCosineFortran(Component):
+
+    def __init__(self, nTurbines, direction_id=0, options=None):
+        super(JensenCosineFortran, self).__init__()
+
+        self.deriv_options['type'] = 'fd'
+        self.deriv_options['form'] = 'central'
+        self.deriv_options['step_size'] = 1.0e-6
+        self.deriv_options['step_calc'] = 'relative'
+
+        self.nTurbines = nTurbines
+        self.direction_id = direction_id
+        try:
+            self.radius_multiplier = options['radius multiplier']
+        except:
+            self.radius_multiplier = 1.0
+
+
+        #unused but required for compatibility
+        self.add_param('yaw%i' % direction_id, np.zeros(nTurbines), units='deg')
+        self.add_param('hubHeight', np.zeros(nTurbines), units='m')
+        self.add_param('wakeCentersYT', np.zeros(nTurbines*nTurbines), units='m')
+        self.add_param('wakeDiametersT', np.zeros(nTurbines*nTurbines), units='m')
+        self.add_param('wakeOverlapTRel', np.zeros(nTurbines*nTurbines))
+        self.add_param('Ct', np.zeros(nTurbines))
+
+        # used in this version of the Jensen model
+        self.add_param('turbineXw', val=np.zeros(nTurbines), units='m')
+        self.add_param('turbineYw', val=np.zeros(nTurbines), units='m')
+        self.add_param('turbineZ', val=np.zeros(nTurbines), units='m')
+        self.add_param('rotorDiameter', val=np.zeros(nTurbines)+126.4, units='m')
+        self.add_param('model_params:alpha', val=0.1)
+        self.add_param('model_params:spread_angle', val=20.0, desc="spreading angle in degrees")
+        self.add_param('wind_speed', val=8.0, units='m/s')
+        self.add_param('axialInduction', val=np.zeros(nTurbines)+1./3.)
+
+        # Spencer M's edit for WEC: add in xi (i.e., relaxation factor) as a parameter.
+        self.add_param('model_params:relaxationFactor', val=1.0)
+        # self.add_param('relaxationFactor', val=np.arange(3.0, 0.75, -0.25))
+
+        self.add_output('wtVelocity%i' % direction_id, val=np.zeros(nTurbines), units='m/s')
+
+    def solve_nonlinear(self, params, unknowns, resids):
+        turbineXw = params['turbineXw']
+        turbineYw = params['turbineYw']
+        turbineZ = params['turbineZ']
+        rotorDiameter = params['rotorDiameter']
+        r = 0.5*params['rotorDiameter']
+        alpha = params['model_params:alpha']
+        bound_angle = params['model_params:spread_angle']
+        a = params['axialInduction']
+        windSpeed = params['wind_speed']
+        nTurbines = self.nTurbines
+        direction_id = self.direction_id
+        loss = np.zeros(nTurbines)
+        hubVelocity = np.zeros(nTurbines)
+
+        # Save the relaxation factor from the params dictionary into a variable to be used in this function.
+        relaxationFactor = params['model_params:relaxationFactor']
+
+        f_theta = get_cosine_factor_original(turbineXw, turbineYw, R0=r[0]*self.radius_multiplier,
+                                             bound_angle=bound_angle, relaxationFactor=relaxationFactor)
+        # print f_theta
+
+        loss = _jensen2.jensenwake(turbineXw, turbineYw, rotorDiameter, relaxationFactor)
+
+        hubVelocity = (1.0 - loss) * windSpeed
+
+        unknowns['wtVelocity%i' % direction_id] = hubVelocity
+
+
 class Jensen(Group):
     #Group with all the components for the Jensen model
 
@@ -218,6 +289,9 @@ class Jensen(Group):
         elif (model_options['variant'] is 'Cosine'):
             self.add('f_1', JensenCosine(nTurbs, direction_id=direction_id, options=model_options),
                  promotes=['*'])
+        elif model_options['variant'] is 'CosineFortran':   # PJ's new Jensen code in FORTRAN.
+            self.add('f_1', JensenCosineFortran(nTurbines=nTurbs, direction_id=direction_id, options=model_options),
+                     promotes=['*'])
 
         # non-typical variants for various research purposes
         else:
