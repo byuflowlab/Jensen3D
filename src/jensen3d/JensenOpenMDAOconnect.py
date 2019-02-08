@@ -155,7 +155,7 @@ class JensenCosine(Component):
         self.add_param('axialInduction', val=np.zeros(nTurbines)+1./3.)
 
         # Spencer M's edit for WEC: add in xi (i.e., relaxation factor) as a parameter.
-        self.add_param('model_params:relaxationFactor', val=1.0)
+        self.add_param('model_params:wec_factor', val=1.0)
         # self.add_param('relaxationFactor', val=np.arange(3.0, 0.75, -0.25))
 
         self.add_output('wtVelocity%i' % direction_id, val=np.zeros(nTurbines), units='m/s')
@@ -175,7 +175,7 @@ class JensenCosine(Component):
         hubVelocity = np.zeros(nTurbines)
 
         # Save the relaxation factor from the params dictionary into a variable to be used in this function.
-        relaxationFactor = params['model_params:relaxationFactor']
+        relaxationFactor = params['model_params:wec_factor']
 
         f_theta = get_cosine_factor_original(turbineXw, turbineYw, R0=r[0]*self.radius_multiplier,
                                              bound_angle=bound_angle, relaxationFactor=relaxationFactor)
@@ -238,7 +238,7 @@ class JensenCosineFortran(Component):
         self.add_param('axialInduction', val=np.zeros(nTurbines)+1./3.)
 
         # Spencer M's edit for WEC: add in xi (i.e., relaxation factor) as a parameter.
-        self.add_param('model_params:relaxationFactor', val=1.0)
+        self.add_param('model_params:wec_factor', val=1.0)
         # self.add_param('relaxationFactor', val=np.arange(3.0, 0.75, -0.25))
 
         self.add_output('wtVelocity%i' % direction_id, val=np.zeros(nTurbines), units='m/s')
@@ -259,7 +259,7 @@ class JensenCosineFortran(Component):
         hubVelocity = np.zeros(nTurbines)
 
         # Save the relaxation factor from the params dictionary into a variable to be used in this function.
-        relaxationFactor = params['model_params:relaxationFactor']
+        relaxationFactor = params['model_params:wec_factor']
 
         f_theta = get_cosine_factor_original(turbineXw, turbineYw, R0=r[0]*self.radius_multiplier,
                                              bound_angle=bound_angle, relaxationFactor=relaxationFactor)
