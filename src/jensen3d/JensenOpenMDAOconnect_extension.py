@@ -12,7 +12,7 @@ import _jensen
 
 def add_jensen_params_IndepVarComps(om_group, model_options):
 
-    ivc = om_group.add_subsystem('model_params', IndepVarComp(), promotes=['*'])
+    ivc = om_group.add_subsystem('model_params', om.IndepVarComp(), promotes=['*'])
 
     ivc.add_discrete_output('model_params:alpha', 2.0,
                             desc='spread of cosine smoothing factor (multiple of sum of wake and '
@@ -61,7 +61,8 @@ class Jensen_comp(om.ExplicitComponent):
         self.add_output('wtVelocity%i' % direction_id, val=np.zeros(nTurbines), units='m/s')
 
         # Derivatives
-        self.declare_partials('*', '*', method='fd', form='central')
+        depvars = ['turbineXw', 'turbineYw', 'rotorDiameter']
+        self.declare_partials('*', depvars, method='fd', form='central')
         self.set_check_partial_options('*', form='central')
 
     def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
@@ -166,10 +167,10 @@ class effectiveVelocityCosineNoOverlap(om.ExplicitComponent):
         direction_id = opt['direction_id']
         options = opt['options']
 
-        if options is None:
-            self.radius_multiplier = 1.0
-        else:
+        try:
             self.radius_multiplier = options['radius multiplier']
+        except:
+            self.radius_multiplier = 1.0
 
         #unused but required for compatibility
         self.add_input('yaw%i' % direction_id, np.zeros(nTurbines), units='deg')
@@ -223,10 +224,10 @@ class effectiveVelocityCosineNoOverlap(om.ExplicitComponent):
                 # if turbine j is upstream, calculate the deficit
                 if dx > 0.0:
 
-                  # calculate velocity deficit
-                  loss[j] = 2.0*a[j]*(f_theta[j][i]*r[j]/(r[j]+alpha*dx))**2 #Jensen's formula
+                    # calculate velocity deficit
+                    loss[j] = 2.0*a[j]*(f_theta[j][i]*r[j]/(r[j]+alpha*dx))**2 #Jensen's formula
 
-                  loss[j] = loss[j]**2
+                    loss[j] = loss[j]**2
 
             totalLoss = np.sqrt(np.sum(loss)) #square root of the sum of the squares
             hubVelocity[i] = (1.-totalLoss)*windSpeed #effective hub velocity
@@ -406,10 +407,10 @@ class JensenCosineYaw(om.ExplicitComponent):
         direction_id = opt['direction_id']
         options = opt['options']
 
-        if options is None or 'radius_multiplier' not in options:
-            self.radius_multiplier = 1.0
-        else:
+        try:
             self.radius_multiplier = options['radius multiplier']
+        except:
+            self.radius_multiplier = 1.0
 
         #unused but required for compatibility
         self.add_input('yaw%i' % direction_id, np.zeros(nTurbines), units='deg')
@@ -530,10 +531,10 @@ class JensenCosineYawIntegral(om.ExplicitComponent):
         direction_id = opt['direction_id']
         options = opt['options']
 
-        if options is None:
-            self.radius_multiplier = 1.0
-        else:
+        try:
             self.radius_multiplier = options['radius multiplier']
+        except:
+            self.radius_multiplier = 1.0
 
         #unused but required for compatibility
         self.add_input('yaw%i' % direction_id, np.zeros(nTurbines), units='deg')
@@ -806,9 +807,9 @@ def jensen_bk(X, Y, wind, D):
                 front[j] = 1
 
         if front[j] == 1:
-           Ueff[j] = Uinf[j]
-           Pow[j] = 0.5*rho*Area*Cp*Ueff[j]**3
-           # print j #Pow[j]
+            Ueff[j] = Uinf[j]
+            Pow[j] = 0.5*rho*Area*Cp*Ueff[j]**3
+            # print j #Pow[j]
 
     # calc power for downstream turbines
     for j in range(0, n):
@@ -920,8 +921,8 @@ if __name__=="__main__":
     #setup problem
     prob = om.Problem()
 
-    prob.model.add('windframe', WindFrame(nTurbines=nTurbs), promotes=['*'])
-    prob.model.add('jensen', Jensen(nTurbines=nTurbs, model_options=model_options), promotes=['*'])
+    prob.model.add_subsystem('windframe', WindFrame(nTurbines=nTurbs), promotes=['*'])
+    prob.model.add_subsystem('jensen', Jensen(nTurbines=nTurbs, model_options=model_options), promotes=['*'])
 
     #initialize problem
     prob.setup()
@@ -938,7 +939,7 @@ if __name__=="__main__":
     #run the problem
     print('start Jensen run')
     tic = time.time()
-    prob.run()
+    prob.run_model()
     toc = time.time()
 
     #print the results

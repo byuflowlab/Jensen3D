@@ -258,7 +258,7 @@ if __name__=="__main__":
     #run the problem
     print('start Jensen run')
     tic = time.time()
-    prob.run()
+    prob.run_model()
     toc = time.time()
 
     #print the results

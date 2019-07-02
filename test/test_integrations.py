@@ -1,14 +1,14 @@
 import unittest
+
 import numpy as np
 
-from openmdao.api import Group
+import openmdao.api as om
 from plantenergy.OptimizationGroups import AEPGroup
 
 # from fusedwake.WindTurbine import WindTurbine
 # from fusedwake.WindFarm import WindFarm
 # from windIO.Plant import WTLayout, yaml
 
-from openmdao.api import Problem
 
 class test_jensen_tophat(unittest.TestCase):
 
@@ -51,9 +51,9 @@ class test_jensen_tophat(unittest.TestCase):
         # set up problem
 
         wake_model_options = None
-        prob = Problem(root=AEPGroup(nTurbines, nDirections, wake_model=jensen_wrapper, wake_model_options=wake_model_options,
-                                     params_IdepVar_func=add_jensen_params_IndepVarComps,
-                                     params_IndepVar_args={'use_angle': False}))
+        prob = om.Problem(model=AEPGroup(nTurbines=nTurbines, nDirections=nDirections, wake_model=jensen_wrapper, wake_model_options=wake_model_options,
+                                         params_IdepVar_func=add_jensen_params_IndepVarComps,
+                                         params_IdepVar_args={'use_angle': False}))
 
         # initialize problem
         prob.setup(check=True)
@@ -77,7 +77,7 @@ class test_jensen_tophat(unittest.TestCase):
         # prob['model_params:alpha'] = 0.1
 
         # run the problem
-        prob.run()
+        prob.run_model()
 
         self.prob = prob
 
@@ -86,6 +86,7 @@ class test_jensen_tophat(unittest.TestCase):
 
     def testRun(self):
         np.testing.assert_allclose(self.prob['wtVelocity0'],  np.array([8.1, 8.1, 6.74484, 6.74484, 6.616713, 6.616713]))
+
 
 class test_jensencosine(unittest.TestCase):
 
@@ -128,9 +129,9 @@ class test_jensencosine(unittest.TestCase):
         # set up problem
 
         wake_model_options = {'variant': 'Cosine'}
-        prob = Problem(root=AEPGroup(nTurbines, nDirections, wake_model=jensen_wrapper, wake_model_options=wake_model_options,
-                                     params_IdepVar_func=add_jensen_params_IndepVarComps,
-                                     params_IndepVar_args={'use_angle': False}))
+        prob = om.Problem(model=AEPGroup(nTurbines=nTurbines, nDirections=nDirections, wake_model=jensen_wrapper, wake_model_options=wake_model_options,
+                                         params_IdepVar_func=add_jensen_params_IndepVarComps,
+                                         params_IdepVar_args={'use_angle': False}))
 
         # initialize problem
         prob.setup(check=True)
@@ -154,7 +155,7 @@ class test_jensencosine(unittest.TestCase):
         # prob['model_params:alpha'] = 0.1
 
         # run the problem
-        prob.run()
+        prob.run_model()
 
         self.prob = prob
 
@@ -163,6 +164,7 @@ class test_jensencosine(unittest.TestCase):
 
     def testRun(self):
         np.testing.assert_allclose(self.prob['wtVelocity0'],  np.array([8.1, 8.1, 6.982647, 6.982647, 6.886741, 6.879763]))
+
 
 if __name__ == "__main__":
     unittest.main()
