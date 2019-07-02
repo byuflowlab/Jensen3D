@@ -1,109 +1,128 @@
-import numpy as np
-from scipy.integrate import quad
-from openmdao.api import Component, Group, Problem, IndepVarComp
-
-from plantenergy.GeneralWindFarmComponents import WindFrame
-import _jensen
+from __future__ import print_function, division, absolute_import
 import time
 
+import numpy as np
+from scipy.integrate import quad
 
-def add_jensen_params_IndepVarComps(openmdao_object, model_options):
+import openmdao.api as om
+from plantenergy.GeneralWindFarmComponents import WindFrame
 
-    openmdao_object.add('jp0', IndepVarComp('model_params:alpha', 2.0, pass_by_obj=True,
-                                             desc='spread of cosine smoothing factor (multiple of sum of wake and '
-                                                  'rotor radii)'),
-                        promotes=['*'])
+import _jensen
+
+
+def add_jensen_params_IndepVarComps(om_group, model_options):
+
+    ivc = om_group.add_subsystem('model_params', IndepVarComp(), promotes=['*'])
+
+    ivc.add_discrete_output('model_params:alpha', 2.0,
+                            desc='spread of cosine smoothing factor (multiple of sum of wake and '
+                            'rotor radii)')
 
     if model_options['variant'] is 'Cosine' or model_options['variant'] is 'CosineNoOverlap':
-        openmdao_object.add('jp1', IndepVarComp('model_params:spread_angle', 2.0, pass_by_obj=True,
-                                                desc='spread of cosine smoothing factor (multiple of sum of wake and '
-                                                     'rotor radii)'),
-                            promotes=['*'])
+        ivc.add_discrete_output('model_params:spread_angle', 2.0,
+                                desc='spread of cosine smoothing factor (multiple of sum of wake and '
+                                'rotor radii)')
 
 
 # this component is to find the fraction of the all the rotors that are in the wakes of the other turbines
-class Jensen_comp(Component):
-    
-    def __init__(self, nTurbines, direction_id=0):
-        super(Jensen_comp, self).__init__()
+class Jensen_comp(om.ExplicitComponent):
 
-        self.deriv_options['form'] = 'central'
-        self.deriv_options['step_size'] = 1.0e-6
-        self.deriv_options['type'] = 'fd'
-        self.deriv_options['step_calc'] = 'relative'
+    def initialize(self):
+        """
+        Declare options.
+        """
+        self.options.declare('nTurbines', types=int, default=0,
+                             desc="Number of wind turbines.")
+        self.options.declare('direction_id', types=int, default=0,
+                             desc="Direction index.")
 
-        self.nTurbines = nTurbines
-        self.direction_id = direction_id
-        self.add_param('turbineXw', val=np.zeros(nTurbines), units='m')
-        self.add_param('turbineYw', val=np.zeros(nTurbines), units='m')
-        self.add_param('rotorDiameter', val=np.zeros(nTurbines)+126.4, units='m')
+    def setup(self):
+        opt = self.options
+        nTurbines = opt['nTurbines']
+        direction_id = opt['direction_id']
+
+        self.add_input('turbineXw', val=np.zeros(nTurbines), units='m')
+        self.add_input('turbineYw', val=np.zeros(nTurbines), units='m')
+        self.add_input('rotorDiameter', val=np.zeros(nTurbines)+126.4, units='m')
 
         #unused but required for compatibility
-        self.add_param('yaw%i' % direction_id, np.zeros(nTurbines), units='deg')
-        self.add_param('hubHeight', np.zeros(nTurbines), units='m')
-        self.add_param('wakeCentersYT', np.zeros(nTurbines*nTurbines), units='m')
-        self.add_param('wakeDiametersT', np.zeros(nTurbines*nTurbines), units='m')
-        self.add_param('wakeOverlapTRel', np.zeros(nTurbines*nTurbines))
-        self.add_param('Ct', np.zeros(nTurbines))
+        self.add_input('yaw%i' % direction_id, np.zeros(nTurbines), units='deg')
+        self.add_input('hubHeight', np.zeros(nTurbines), units='m')
+        self.add_input('wakeCentersYT', np.zeros(nTurbines*nTurbines), units='m')
+        self.add_input('wakeDiametersT', np.zeros(nTurbines*nTurbines), units='m')
+        self.add_input('wakeOverlapTRel', np.zeros(nTurbines*nTurbines))
+        self.add_input('Ct', np.zeros(nTurbines))
 
-        self.add_param('model_params:alpha', val=0.1)
-        
-        self.add_param('wind_speed', val=8.0, units='m/s')
-        self.add_param('axialInduction', val=np.zeros(nTurbines)+1./3.)
+        self.add_discrete_input('model_params:alpha', val=0.1)
 
-        self.add_output('wtVelocity%i' % direction_id, val=np.zeros(nTurbines), units='m/s')
-
-
-    def solve_nonlinear(self, params, unknowns, resids):
-        
-
-        nTurbines = self.nTurbines
-        direction_id = self.direction_id
-
-        unknowns['wtVelocity%i' % direction_id] = _jensen.jensen(params['turbineXw'],
-			params['turbineYw'], params['rotorDiameter'], 
-			params['model_params:alpha'], params['wind_speed'], params['axialInduction']) 
-
-class effectiveVelocityCosineOverlap(Component):
-
-    def __init__(self, nTurbines, direction_id=0):
-        super(effectiveVelocityCosineOverlap, self).__init__()
-
-        self.deriv_options['type'] = 'fd'
-        self.deriv_options['form'] = 'central'
-        self.deriv_options['step_size'] = 1.0e-6
-        self.deriv_options['step_calc'] = 'relative'
-
-        self.nTurbines = nTurbines
-        self.direction_id = direction_id
-
-        self.add_param('turbineXw', val=np.zeros(nTurbines), units='m')
-        self.add_param('turbineYw', val=np.zeros(nTurbines), units='m')
-        self.add_param('turbineZ', val=np.zeros(nTurbines), units='m')
-        self.add_param('rotorDiameter', val=np.zeros(nTurbines)+126.4, units='m')
-        self.add_param('model_params:alpha', val=0.1)
-        self.add_param('model_params:spread_angle', val=2.0)
-        self.add_param('wind_speed', val=8.0, units='m/s')
-        self.add_param('axialInduction', val=np.zeros(nTurbines)+1./3.)
-        self.add_param('overlap', val=np.empty([nTurbines, nTurbines]))
+        self.add_input('wind_speed', val=8.0, units='m/s')
+        self.add_input('axialInduction', val=np.zeros(nTurbines)+1./3.)
 
         self.add_output('wtVelocity%i' % direction_id, val=np.zeros(nTurbines), units='m/s')
 
-    def solve_nonlinear(self, params, unknowns, resids):
+        # Derivatives
+        self.declare_partials('*', '*', method='fd', form='central')
+        self.set_check_partial_options('*', form='central')
 
-        turbineXw = params['turbineXw']
-        turbineYw = params['turbineYw']
-        turbineZ = params['turbineZ']
-        r = 0.5*params['rotorDiameter']
-        alpha = params['model_params:alpha']
-        spread_angle = params['model_params:spread_angle']
-        a = params['axialInduction']
-        windSpeed = params['wind_speed']
-        nTurbines = self.nTurbines
-        direction_id = self.direction_id
-        loss = np.zeros(nTurbines)
-        hubVelocity = np.zeros(nTurbines)
-        overlap = params['overlap']
+    def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
+        opt = self.options
+        nTurbines = opt['nTurbines']
+        direction_id = opt['direction_id']
+
+        outputs['wtVelocity%i' % direction_id] = _jensen.jensen(inputs['turbineXw'],
+			inputs['turbineYw'], inputs['rotorDiameter'],
+			discrete_inputs['model_params:alpha'], inputs['wind_speed'], inputs['axialInduction'])
+
+
+class effectiveVelocityCosineOverlap(om.ExplicitComponent):
+
+    def initialize(self):
+        """
+        Declare options.
+        """
+        self.options.declare('nTurbines', types=int, default=0,
+                             desc="Number of wind turbines.")
+        self.options.declare('direction_id', types=int, default=0,
+                             desc="Direction index.")
+
+    def setup(self):
+        opt = self.options
+        nTurbines = opt['nTurbines']
+        direction_id = opt['direction_id']
+
+        self.add_input('turbineXw', val=np.zeros(nTurbines), units='m')
+        self.add_input('turbineYw', val=np.zeros(nTurbines), units='m')
+        self.add_input('turbineZ', val=np.zeros(nTurbines), units='m')
+        self.add_input('rotorDiameter', val=np.zeros(nTurbines)+126.4, units='m')
+        self.add_discrete_input('model_params:alpha', val=0.1)
+        self.add_discrete_input('model_params:spread_angle', val=2.0)
+        self.add_input('wind_speed', val=8.0, units='m/s')
+        self.add_param('axialInduction', val=np.zeros(nTurbines)+1./3.)
+        self.add_input('overlap', val=np.empty([nTurbines, nTurbines]))
+
+        self.add_output('wtVelocity%i' % direction_id, val=np.zeros(nTurbines), units='m/s')
+
+        # Derivatives
+        self.declare_partials('*', '*', method='fd', form='central')
+        self.set_check_partial_options('*', form='central')
+
+    def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
+        opt = self.options
+        nTurbines = opt['nTurbines']
+        direction_id = opt['direction_id']
+
+        turbineXw = inputs['turbineXw']
+        turbineYw = inputs['turbineYw']
+        turbineZ = inputs['turbineZ']
+        r = 0.5*inputs['rotorDiameter']
+        alpha = discrete_inputs['model_params:alpha']
+        spread_angle = discrete_inputs['model_params:spread_angle']
+        a = inputs['axialInduction']
+        windSpeed = inputs['wind_speed']
+        overlap = inputs['overlap']
+
+        loss = np.zeros(nTurbines, dtype=inputs._data.dtype)
+        hubVelocity = np.zeros(nTurbines, dtype=inputs._data.dtype)
 
         for i in range(nTurbines):
             loss[:] = 0.0
@@ -124,64 +143,78 @@ class effectiveVelocityCosineOverlap(Component):
 
             totalLoss = np.sqrt(np.sum(loss)) #square root of the sum of the squares
             hubVelocity[i] = (1-totalLoss)*windSpeed #effective hub velocity
-        unknowns['wtVelocity%i' % direction_id] = hubVelocity
+
+        outputs['wtVelocity%i' % direction_id] = hubVelocity
 
 
-class effectiveVelocityCosineNoOverlap(Component):
+class effectiveVelocityCosineNoOverlap(om.ExplicitComponent):
 
-    def __init__(self, nTurbines, direction_id=0, options=None):
-        super(effectiveVelocityCosineNoOverlap, self).__init__()
+    def initialize(self):
+        """
+        Declare options.
+        """
+        self.options.declare('nTurbines', types=int, default=0,
+                             desc="Number of wind turbines.")
+        self.options.declare('direction_id', types=int, default=0,
+                             desc="Direction index.")
+        self.options.declare('options', types=dict, default=None, allow_none=True,
+                             desc="Additional parameters for this component.")
 
-        self.deriv_options['type'] = 'fd'
-        self.deriv_options['form'] = 'central'
-        self.deriv_options['step_size'] = 1.0e-6
-        self.deriv_options['step_calc'] = 'relative'
+    def setup(self):
+        opt = self.options
+        nTurbines = opt['nTurbines']
+        direction_id = opt['direction_id']
+        options = opt['options']
 
-        self.nTurbines = nTurbines
-        self.direction_id = direction_id
         if options is None:
             self.radius_multiplier = 1.0
         else:
             self.radius_multiplier = options['radius multiplier']
 
-
         #unused but required for compatibility
-        self.add_param('yaw%i' % direction_id, np.zeros(nTurbines), units='deg')
-        self.add_param('hubHeight', np.zeros(nTurbines), units='m')
-        self.add_param('wakeCentersYT', np.zeros(nTurbines*nTurbines), units='m')
-        self.add_param('wakeDiametersT', np.zeros(nTurbines*nTurbines), units='m')
-        self.add_param('wakeOverlapTRel', np.zeros(nTurbines*nTurbines))
-        self.add_param('Ct', np.zeros(nTurbines))
+        self.add_input('yaw%i' % direction_id, np.zeros(nTurbines), units='deg')
+        self.add_input('hubHeight', np.zeros(nTurbines), units='m')
+        self.add_input('wakeCentersYT', np.zeros(nTurbines*nTurbines), units='m')
+        self.add_input('wakeDiametersT', np.zeros(nTurbines*nTurbines), units='m')
+        self.add_input('wakeOverlapTRel', np.zeros(nTurbines*nTurbines))
+        self.add_input('Ct', np.zeros(nTurbines))
 
         # used in this version of the Jensen model
-        self.add_param('turbineXw', val=np.zeros(nTurbines), units='m')
-        self.add_param('turbineYw', val=np.zeros(nTurbines), units='m')
-        self.add_param('turbineZ', val=np.zeros(nTurbines), units='m')
-        self.add_param('rotorDiameter', val=np.zeros(nTurbines)+126.4, units='m')
-        self.add_param('model_params:alpha', val=0.1)
-        self.add_param('model_params:spread_angle', val=20.0, desc="spreading angle in degrees")
-        self.add_param('wind_speed', val=8.0, units='m/s')
-        self.add_param('axialInduction', val=np.zeros(nTurbines)+1./3.)
+        self.add_input('turbineXw', val=np.zeros(nTurbines), units='m')
+        self.add_input('turbineYw', val=np.zeros(nTurbines), units='m')
+        self.add_input('turbineZ', val=np.zeros(nTurbines), units='m')
+        self.add_input('rotorDiameter', val=np.zeros(nTurbines)+126.4, units='m')
+        self.add_discrete_input('model_params:alpha', val=0.1)
+        self.add_discrete_input('model_params:spread_angle', val=20.0, desc="spreading angle in degrees")
+        self.add_input('wind_speed', val=8.0, units='m/s')
+        self.add_input('axialInduction', val=np.zeros(nTurbines)+1./3.)
 
         self.add_output('wtVelocity%i' % direction_id, val=np.zeros(nTurbines), units='m/s')
 
-    def solve_nonlinear(self, params, unknowns, resids):
+        # Derivatives
+        depvars = ['turbineXw', 'turbineYw', 'turbineZ', 'rotorDiameter', 'wind_speed', 'axialInduction']
+        self.declare_partials('*', depvars, method='fd', form='central')
+        self.set_check_partial_options('*', form='central')
+
+    def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
+        opt = self.options
+        nTurbines = opt['nTurbines']
+        direction_id = opt['direction_id']
 
         turbineXw = params['turbineXw']
         turbineYw = params['turbineYw']
         turbineZ = params['turbineZ']
         r = 0.5*params['rotorDiameter']
-        alpha = params['model_params:alpha']
-        bound_angle = params['model_params:spread_angle']
+        alpha = discrete_inputs['model_params:alpha']
+        bound_angle = discrete_inputs['model_params:spread_angle']
         a = params['axialInduction']
         windSpeed = params['wind_speed']
-        nTurbines = self.nTurbines
-        direction_id = self.direction_id
-        loss = np.zeros(nTurbines)
-        hubVelocity = np.zeros(nTurbines)
+
+        loss = np.zeros(nTurbines, dtype=inputs._data.dtype)
+        hubVelocity = np.zeros(nTurbines, dtype=inputs._data.dtype)
 
         f_theta = get_cosine_factor_original(turbineXw, turbineYw, R0=r[0]*self.radius_multiplier, bound_angle=bound_angle)
-        # print f_theta
+        # print(f_theta)
 
         for i in range(nTurbines):
             loss[:] = 0.0
@@ -197,55 +230,69 @@ class effectiveVelocityCosineNoOverlap(Component):
 
             totalLoss = np.sqrt(np.sum(loss)) #square root of the sum of the squares
             hubVelocity[i] = (1.-totalLoss)*windSpeed #effective hub velocity
-            # print hubVelocity
-        unknowns['wtVelocity%i' % direction_id] = hubVelocity
+            # print(hubVelocity)
+
+        outputs['wtVelocity%i' % direction_id] = hubVelocity
 
 
-class effectiveVelocityConference(Component):
+class effectiveVelocityConference(om.ExplicitComponent):
 
-    def __init__(self, nTurbines, direction_id=0):
-        super(effectiveVelocityConference, self).__init__()
+    def initialize(self):
+        """
+        Declare options.
+        """
+        self.options.declare('nTurbines', types=int, default=0,
+                             desc="Number of wind turbines.")
+        self.options.declare('direction_id', types=int, default=0,
+                             desc="Direction index.")
 
-        self.deriv_options['type'] = 'fd'
-        self.deriv_options['form'] = 'central'
-        self.deriv_options['step_size'] = 1.0e-6
-        self.deriv_options['step_calc'] = 'relative'
+    def setup(self):
+        opt = self.options
+        nTurbines = opt['nTurbines']
+        direction_id = opt['direction_id']
 
         self.nTurbines = nTurbines
         self.direction_id = direction_id
 
         #unused but required for compatibility
-        self.add_param('yaw%i' % direction_id, np.zeros(nTurbines), units='deg')
-        self.add_param('hubHeight', np.zeros(nTurbines), units='m')
-        self.add_param('wakeCentersYT', np.zeros(nTurbines*nTurbines), units='m')
-        self.add_param('wakeDiametersT', np.zeros(nTurbines*nTurbines), units='m')
-        self.add_param('wakeOverlapTRel', np.zeros(nTurbines*nTurbines))
-        self.add_param('Ct', np.zeros(nTurbines))
+        self.add_input('yaw%i' % direction_id, np.zeros(nTurbines), units='deg')
+        self.add_input('hubHeight', np.zeros(nTurbines), units='m')
+        self.add_input('wakeCentersYT', np.zeros(nTurbines*nTurbines), units='m')
+        self.add_input('wakeDiametersT', np.zeros(nTurbines*nTurbines), units='m')
+        self.add_input('wakeOverlapTRel', np.zeros(nTurbines*nTurbines))
+        self.add_input('Ct', np.zeros(nTurbines))
 
         # used in Jensen model
-        self.add_param('turbineXw', val=np.zeros(nTurbines), units='m')
-        self.add_param('turbineYw', val=np.zeros(nTurbines), units='m')
-        self.add_param('turbineZ', val=np.zeros(nTurbines), units='m')
-        self.add_param('rotorDiameter', val=np.zeros(nTurbines)+126.4, units='m')
-        self.add_param('model_params:alpha', val=0.1)
-        self.add_param('model_params:spread_angle', val=0.1)
-        self.add_param('wind_speed', val=8.0, units='m/s')
-        self.add_param('axialInduction', val=np.zeros(nTurbines)+1./3.)
+        self.add_input('turbineXw', val=np.zeros(nTurbines), units='m')
+        self.add_input('turbineYw', val=np.zeros(nTurbines), units='m')
+        self.add_input('turbineZ', val=np.zeros(nTurbines), units='m')
+        self.add_input('rotorDiameter', val=np.zeros(nTurbines)+126.4, units='m')
+        self.add_discrete_input('model_params:alpha', val=0.1)
+        self.add_discrete_input('model_params:spread_angle', val=0.1)
+        self.add_input('wind_speed', val=8.0, units='m/s')
+        self.add_input('axialInduction', val=np.zeros(nTurbines)+1./3.)
 
         self.add_output('wtVelocity%i' % direction_id, val=np.zeros(nTurbines), units='m/s')
 
-    def solve_nonlinear(self, params, unknowns, resids):
+        # Derivatives
+        depvars = ['turbineXw', 'turbineYw', 'turbineZ', 'rotorDiameter', 'wind_speed', 'axialInduction']
+        self.declare_partials('*', depvars, method='fd', form='central')
+        self.set_check_partial_options('*', form='central')
 
-        x = params['turbineXw']
-        y = params['turbineYw']
-        rotorDiams = params['rotorDiameter']
-        alpha = params['model_params:alpha']
-        axialInd = params['axialInduction']
-        effU_in = params['wind_speed']
-        nTurbines = self.nTurbines
-        direction_id = self.direction_id
-        loss = np.zeros(nTurbines)
-        hubVelocity = np.zeros(nTurbines)
+    def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
+        opt = self.options
+        nTurbines = opt['nTurbines']
+        direction_id = opt['direction_id']
+
+        x = inputs['turbineXw']
+        y = inputs['turbineYw']
+        rotorDiams = inputs['rotorDiameter']
+        alpha = discrete_inputs['model_params:alpha']
+        axialInd = inputs['axialInduction']
+        effU_in = inputs['wind_speed']
+
+        loss = np.zeros(nTurbines, dtype=inputs._data.dtype)
+        hubVelocity = np.zeros(nTurbines, dtype=inputs._data.dtype)
 
          # conference terms
         # boundAngle = 20       # before tuning to FLORIS
@@ -265,7 +312,7 @@ class effectiveVelocityConference(Component):
         # Ct = (4/3)*(1-1/3)
         # Uin = 8
         Uin = effU
-        Uinf = np.ones(x.size)*Uin
+        Uinf = np.ones(x.size, dtype=inputs._data.dtype)*Uin
         # a = (1-sqrt(1-Ct))/2          # this assumes an optimal rotor. For a more general equation, see FLORIS paper
         # eta = 0.768
         # Cp = 4*a*((1-a)**2)*eta
@@ -285,15 +332,15 @@ class effectiveVelocityConference(Component):
         #     y[i] = X[i]*np.sin(-Phi)+Y[i]*np.cos(-Phi)
         # # print x, y
 
-        Ueff = np.zeros(n)     # initialize effective wind speeds array
+        Ueff = np.zeros(n, dtype=inputs._data.dtype)     # initialize effective wind speeds array
 
         # find wake overlap
         Overlap_adjust = conferenceWakeOverlap(x, y, R)
         # Overlap_adjust = conferenceWakeOverlap_tune(x, y, R, boundAngle)
 
         # find upwind turbines and calc power for them
-        # Pow = np.zeros(n)
-        front = np.ones(n)
+        # Pow = np.zeros(n, dtype=inputs._data.dtype)
+        front = np.ones(n, dtype=inputs._data.dtype)
         for j in range(0, n):
             for i in range(0, n):
                 if Overlap_adjust[i][j] != 0:
@@ -337,47 +384,62 @@ class effectiveVelocityConference(Component):
         # Pow_tot = np.sum(Pow)
 
         # return Pow_tot  # Ueff is an ndarray of effective windspeeds at each turbine in the plant
-        unknowns['wtVelocity%i' % direction_id] = Ueff
+        outputs['wtVelocity%i' % direction_id] = Ueff
 
 
-class JensenCosineYaw(Component):
+class JensenCosineYaw(om.ExplicitComponent):
 
-    def __init__(self, nTurbines, direction_id=0, options=None):
-        super(JensenCosineYaw, self).__init__()
+    def initialize(self):
+        """
+        Declare options.
+        """
+        self.options.declare('nTurbines', types=int, default=0,
+                             desc="Number of wind turbines.")
+        self.options.declare('direction_id', types=int, default=0,
+                             desc="Direction index.")
+        self.options.declare('options', types=dict, default=None, allow_none=True,
+                             desc="Additional parameters for this component.")
 
-        self.deriv_options['type'] = 'fd'
-        self.deriv_options['form'] = 'central'
-        self.deriv_options['step_size'] = 1.0e-6
-        self.deriv_options['step_calc'] = 'relative'
+    def setup(self):
+        opt = self.options
+        nTurbines = opt['nTurbines']
+        direction_id = opt['direction_id']
+        options = opt['options']
 
-        self.nTurbines = nTurbines
-        self.direction_id = direction_id
-        if options is None:
+        if options is None or 'radius_multiplier' not in options:
             self.radius_multiplier = 1.0
         else:
             self.radius_multiplier = options['radius multiplier']
 
         #unused but required for compatibility
-        self.add_param('yaw%i' % direction_id, np.zeros(nTurbines), units='deg')
-        self.add_param('hubHeight', np.zeros(nTurbines), units='m')
-        self.add_param('wakeCentersYT', np.zeros(nTurbines*nTurbines), units='m')
-        self.add_param('wakeDiametersT', np.zeros(nTurbines*nTurbines), units='m')
-        self.add_param('wakeOverlapTRel', np.zeros(nTurbines*nTurbines))
-        self.add_param('Ct', np.zeros(nTurbines))
+        self.add_input('yaw%i' % direction_id, np.zeros(nTurbines), units='deg')
+        self.add_input('hubHeight', np.zeros(nTurbines), units='m')
+        self.add_input('wakeCentersYT', np.zeros(nTurbines*nTurbines), units='m')
+        self.add_input('wakeDiametersT', np.zeros(nTurbines*nTurbines), units='m')
+        self.add_input('wakeOverlapTRel', np.zeros(nTurbines*nTurbines))
+        self.add_input('Ct', np.zeros(nTurbines))
 
         # used in this version of the Jensen model
-        self.add_param('turbineXw', val=np.zeros(nTurbines), units='m')
-        self.add_param('turbineYw', val=np.zeros(nTurbines), units='m')
-        self.add_param('turbineZ', val=np.zeros(nTurbines), units='m')
-        self.add_param('rotorDiameter', val=np.zeros(nTurbines)+126.4, units='m')
-        self.add_param('model_params:alpha', val=0.1)
-        self.add_param('model_params:spread_angle', val=20.0, desc="spreading angle in degrees")
-        self.add_param('wind_speed', val=8.0, units='m/s')
-        self.add_param('axialInduction', val=np.zeros(nTurbines)+1./3.)
+        self.add_input('turbineXw', val=np.zeros(nTurbines), units='m')
+        self.add_input('turbineYw', val=np.zeros(nTurbines), units='m')
+        self.add_input('turbineZ', val=np.zeros(nTurbines), units='m')
+        self.add_input('rotorDiameter', val=np.zeros(nTurbines)+126.4, units='m')
+        self.add_discrete_input('model_params:alpha', val=0.1)
+        self.add_discrete_input('model_params:spread_angle', val=20.0, desc="spreading angle in degrees")
+        self.add_input('wind_speed', val=8.0, units='m/s')
+        self.add_input('axialInduction', val=np.zeros(nTurbines)+1./3.)
 
         self.add_output('wtVelocity%i' % direction_id, val=np.zeros(nTurbines), units='m/s')
 
-    def solve_nonlinear(self, params, unknowns, resids):
+        # Derivatives
+        depvars = ['turbineXw', 'turbineYw', 'turbineZ', 'rotorDiameter', 'wind_speed', 'axialInduction']
+        self.declare_partials('*', depvars, method='fd', form='central')
+        self.set_check_partial_options('*', form='central')
+
+    def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
+        opt = self.options
+        nTurbines = opt['nTurbines']
+        direction_id = opt['direction_id']
 
         def get_wake_offset(dx, wake_spread_angle, yaw, Ct, R):
              # calculate initial wake angle
@@ -396,20 +458,19 @@ class JensenCosineYaw(Component):
             # return deltaY + 4.5
             return deltaY
 
-        nTurbines = self.nTurbines
-        direction_id = self.direction_id
-        turbineXw = params['turbineXw']
-        turbineYw = params['turbineYw']
-        turbineZ = params['turbineZ']
-        yaw = params['yaw%i' % direction_id]
-        r = 0.5*params['rotorDiameter']
-        Ct = params['Ct']
-        alpha = params['model_params:alpha']
-        bound_angle = params['model_params:spread_angle']
-        a = params['axialInduction']
-        windSpeed = params['wind_speed']
-        loss = np.zeros(nTurbines)
-        hubVelocity = np.zeros(nTurbines)
+        turbineXw = inputs['turbineXw']
+        turbineYw = inputs['turbineYw']
+        turbineZ = inputs['turbineZ']
+        yaw = inputs['yaw%i' % direction_id]
+        r = 0.5*inputs['rotorDiameter']
+        Ct = inputs['Ct']
+        alpha = discrete_inputs['model_params:alpha']
+        bound_angle = discrete_inputs['model_params:spread_angle']
+        a = inputs['axialInduction']
+        windSpeed = inputs['wind_speed']
+
+        loss = np.zeros(nTurbines, dtype=inputs._data.dtype)
+        hubVelocity = np.zeros(nTurbines, dtype=inputs._data.dtype)
 
         bound_angle *= np.pi/180.0                                      # convert bound angle to radians
         q = np.pi/bound_angle                                           # factor inside the cos term of the smooth Jensen (see Jensen1983 eq.(3))
@@ -446,46 +507,63 @@ class JensenCosineYaw(Component):
             totalLoss = np.sqrt(np.sum(loss)) #square root of the sum of the squares
             hubVelocity[i] = (1.-totalLoss)*windSpeed #effective hub velocity
             # print hubVelocity
-        unknowns['wtVelocity%i' % direction_id] = hubVelocity
+
+        outputs['wtVelocity%i' % direction_id] = hubVelocity
 
 
-class JensenCosineYawIntegral(Component):
+class JensenCosineYawIntegral(om.ExplicitComponent):
 
-    def __init__(self, nTurbines, direction_id=0, options=None):
-        super(JensenCosineYawIntegral, self).__init__()
+    def initialize(self):
+        """
+        Declare options.
+        """
+        self.options.declare('nTurbines', types=int, default=0,
+                             desc="Number of wind turbines.")
+        self.options.declare('direction_id', types=int, default=0,
+                             desc="Direction index.")
+        self.options.declare('options', types=dict, default=None, allow_none=True,
+                             desc="Additional parameters for this component.")
 
-        self.deriv_options['type'] = 'fd'
-        self.deriv_options['form'] = 'central'
-        self.deriv_options['step_size'] = 1.0e-6
+    def setup(self):
+        opt = self.options
+        nTurbines = opt['nTurbines']
+        direction_id = opt['direction_id']
+        options = opt['options']
 
-        self.nTurbines = nTurbines
-        self.direction_id = direction_id
         if options is None:
             self.radius_multiplier = 1.0
         else:
             self.radius_multiplier = options['radius multiplier']
 
         #unused but required for compatibility
-        self.add_param('yaw%i' % direction_id, np.zeros(nTurbines), units='deg')
-        self.add_param('hubHeight', np.zeros(nTurbines), units='m')
-        self.add_param('wakeCentersYT', np.zeros(nTurbines*nTurbines), units='m')
-        self.add_param('wakeDiametersT', np.zeros(nTurbines*nTurbines), units='m')
-        self.add_param('wakeOverlapTRel', np.zeros(nTurbines*nTurbines))
-        self.add_param('Ct', np.zeros(nTurbines))
+        self.add_input('yaw%i' % direction_id, np.zeros(nTurbines), units='deg')
+        self.add_input('hubHeight', np.zeros(nTurbines), units='m')
+        self.add_input('wakeCentersYT', np.zeros(nTurbines*nTurbines), units='m')
+        self.add_input('wakeDiametersT', np.zeros(nTurbines*nTurbines), units='m')
+        self.add_input('wakeOverlapTRel', np.zeros(nTurbines*nTurbines))
+        self.add_input('Ct', np.zeros(nTurbines))
 
         # used in this version of the Jensen model
-        self.add_param('turbineXw', val=np.zeros(nTurbines), units='m')
-        self.add_param('turbineYw', val=np.zeros(nTurbines), units='m')
-        self.add_param('turbineZ', val=np.zeros(nTurbines), units='m')
-        self.add_param('rotorDiameter', val=np.zeros(nTurbines)+126.4, units='m')
-        self.add_param('model_params:alpha', val=0.1)
-        self.add_param('model_params:spread_angle', val=20.0, desc="spreading angle in degrees")
-        self.add_param('wind_speed', val=8.0, units='m/s')
-        self.add_param('axialInduction', val=np.zeros(nTurbines)+1./3.)
+        self.add_input('turbineXw', val=np.zeros(nTurbines), units='m')
+        self.add_input('turbineYw', val=np.zeros(nTurbines), units='m')
+        self.add_input('turbineZ', val=np.zeros(nTurbines), units='m')
+        self.add_input('rotorDiameter', val=np.zeros(nTurbines)+126.4, units='m')
+        self.add_discrete_input('model_params:alpha', val=0.1)
+        self.add_discrete_input('model_params:spread_angle', val=20.0, desc="spreading angle in degrees")
+        self.add_input('wind_speed', val=8.0, units='m/s')
+        self.add_input('axialInduction', val=np.zeros(nTurbines)+1./3.)
 
         self.add_output('wtVelocity%i' % direction_id, val=np.zeros(nTurbines), units='m/s')
 
-    def solve_nonlinear(self, params, unknowns, resids):
+        # Derivatives
+        depvars = ['turbineXw', 'turbineYw', 'turbineZ', 'rotorDiameter', 'wind_speed', 'axialInduction']
+        self.declare_partials('*', depvars, method='fd', form='central')
+        self.set_check_partial_options('*', form='central')
+
+    def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
+        opt = self.options
+        nTurbines = opt['nTurbines']
+        direction_id = opt['direction_id']
 
         def get_wake_offset(dx, wake_spread_angle, yaw, Ct, initial_wake_radius):
             wake_spread_angle *= np.pi/180.0
@@ -556,18 +634,16 @@ class JensenCosineYawIntegral(Component):
             # return the thing we are integrating
             return deficit*integration_angle*R
 
-        nTurbines = self.nTurbines
-        direction_id = self.direction_id
-        turbineXw = params['turbineXw']
-        turbineYw = params['turbineYw']
-        turbineZ = params['turbineZ']
-        yaw = params['yaw%i' % direction_id]
-        r = 0.5*params['rotorDiameter']
-        Ct = params['Ct']
-        alpha = params['model_params:alpha']
-        bound_angle = params['model_params:spread_angle']
-        a = params['axialInduction']
-        windSpeed = params['wind_speed']
+        turbineXw = inputs['turbineXw']
+        turbineYw = inputs['turbineYw']
+        turbineZ = inputs['turbineZ']
+        yaw = inputs['yaw%i' % direction_id]
+        r = 0.5*inputs['rotorDiameter']
+        Ct = inputs['Ct']
+        alpha = discrete_inputs['model_params:alpha']
+        bound_angle = discrete_inputs['model_params:spread_angle']
+        a = inputs['axialInduction']
+        windSpeed = inputs['wind_speed']
         loss = np.zeros(nTurbines)
         hubVelocity = np.zeros(nTurbines)
 
@@ -608,7 +684,8 @@ class JensenCosineYawIntegral(Component):
             totalLoss = np.sqrt(np.sum(loss)) #square root of the sum of the squares
             hubVelocity[i] = (1.-totalLoss)*windSpeed #effective hub velocity
             # print hubVelocity
-        unknowns['wtVelocity%i' % direction_id] = hubVelocity
+
+        outputs['wtVelocity%i' % direction_id] = hubVelocity
 
 
 def conferenceWakeOverlap(X, Y, R):
@@ -751,7 +828,7 @@ def jensen_bk(X, Y, wind, D):
             Ueff[j] = Uinf[j]*(1 - 2*a*k)
             if Ueff[j] < 0:
                 Ueff[j] = 0
-                print j
+                print(j)
             else:
                 Pow[j] = 0.5*rho*Area*Cp*Ueff[j]**3
 
@@ -761,11 +838,25 @@ def jensen_bk(X, Y, wind, D):
     return Pow
 
 
-class Jensen(Group):
+class Jensen(om.Group):
     #Group with all the components for the Jensen model
 
-    def __init__(self, nTurbs, direction_id=0, model_options=None):
-        super(Jensen, self).__init__()
+    def initialize(self):
+        """
+        Declare options.
+        """
+        self.options.declare('nTurbines', types=int, default=0,
+                             desc="Number of wind turbines.")
+        self.options.declare('direction_id', types=int, default=0,
+                             desc="Direction index.")
+        self.options.declare('model_options', types=dict, default=None, allow_none=True,
+                             desc="Additional parameters for this group.")
+
+    def setup(self):
+        opt = self.options
+        nTurbines = opt['nTurbines']
+        direction_id = opt['direction_id']
+        model_options = opt['model_options']
 
         try:
             model_options['variant']
@@ -774,28 +865,35 @@ class Jensen(Group):
 
         # typical variants
         if model_options['variant'] is 'TopHat':
-            self.add('f_1', JensenTopHat(nTurbs, direction_id=direction_id), promotes=['*'])
+            self.add_subsystem('f_1', JensenTopHat(nTurbines=nTurbines, direction_id=direction_id), promotes=['*'])
+
         elif (model_options['variant'] is 'Cosine'):
-            self.add('f_1', JensenCosine(nTurbs, direction_id=direction_id, options=model_options),
-                 promotes=['*'])
-            #self.add('f_2', effectiveVelocity(nTurbs, direction_id=direction_id), promotes=['*'])
+            self.add_subsystem('f_1', JensenCosine(nTurbines, direction_id=direction_id, options=model_options),
+                                promotes=['*'])
+            #self.add_subsystem('f_2', effectiveVelocity(nTurbines, direction_id=direction_id), promotes=['*'])
+
         #elif model_options['variant'] is 'Cosine':
-            #self.add('f_1', wakeOverlap(nTurbs, direction_id=direction_id), promotes=['*'])
-            #self.add('f_2', effectiveVelocityCosineOverlap(nTurbs, direction_id=direction_id), promotes=['*'])
+            #self.add_subsystem('f_1', wakeOverlap(nTurbines, direction_id=direction_id), promotes=['*'])
+            #self.add_subsystem('f_2', effectiveVelocityCosineOverlap(nTurbines, direction_id=direction_id), promotes=['*'])
+
         elif (model_options['variant'] is 'CosineNoOverlap_1R') or (model_options['variant'] is 'CosineNoOverlap_2R'):
-            self.add('f_1', effectiveVelocityCosineNoOverlap(nTurbs, direction_id=direction_id, options=model_options),
-                     promotes=['*'])
+            self.add_subsystem('f_1', effectiveVelocityCosineNoOverlap(nTurbines, direction_id=direction_id, options=model_options),
+                                promotes=['*'])
+
         elif model_options['variant'] is 'Conference':
-            self.add('f_1', effectiveVelocityConference(nTurbines=nTurbs, direction_id=direction_id), promotes=['*'])
+            self.add_subsystem('f_1', effectiveVelocityConference(nTurbines=nTurbines, direction_id=direction_id), promotes=['*'])
+
         elif (model_options['variant'] is 'CosineYaw_1R') or (model_options['variant'] is 'CosineYaw_2R'):
-            self.add('f_1', JensenCosineYaw(nTurbines=nTurbs, direction_id=direction_id, options=model_options),
-                     promotes=['*'])
+            self.add_subsystem('f_1', JensenCosineYaw(nTurbines=nTurbines, direction_id=direction_id, options=model_options),
+                                promotes=['*'])
+
         elif model_options['variant'] is 'CosineYawIntegral':
-            self.add('f_1', JensenCosineYawIntegral(nTurbines=nTurbs, direction_id=direction_id, options=model_options),
-                     promotes=['*'])
+            self.add_subsystem('f_1', JensenCosineYawIntegral(nTurbines=nTurbines, direction_id=direction_id, options=model_options),
+                                promotes=['*'])
+
         elif model_options['variant'] is 'CosineYaw':
-            self.add('f_1', JensenCosineYawIntegral(nTurbines=nTurbs, direction_id=direction_id, options=model_options),
-                     promotes=['*'])
+            self.add_subsystem('f_1', JensenCosineYawIntegral(nTurbines=nTurbines, direction_id=direction_id, options=model_options),
+                                promotes=['*'])
 
 
 if __name__=="__main__":
@@ -804,7 +902,7 @@ if __name__=="__main__":
     turbineX = np.array([0, 100, 200])
     turbineY = np.array([0, 30, -31])
     turbineZ = np.array([150, 150, 150])
-    
+
     # initialize input variable arrays
     nTurbs = np.size(turbineX)
     rotorRadius = np.ones(nTurbs)*40.
@@ -820,14 +918,14 @@ if __name__=="__main__":
     model_options = {'variant': 'CosineYaw_1R'}
 
     #setup problem
-    prob = Problem(root=Group())
+    prob = om.Problem()
 
-    prob.root.add('windframe', WindFrame(nTurbs), promotes=['*'])
-    prob.root.add('jensen', Jensen(nTurbs, model_options=model_options), promotes=['*'])
+    prob.model.add('windframe', WindFrame(nTurbines=nTurbs), promotes=['*'])
+    prob.model.add('jensen', Jensen(nTurbines=nTurbs, model_options=model_options), promotes=['*'])
 
     #initialize problem
     prob.setup()
-    
+
     #assign values to parameters
     prob['turbineX'] = turbineX
     prob['turbineY'] = turbineY
@@ -838,11 +936,11 @@ if __name__=="__main__":
     prob['model_params:alpha'] = 0.1
 
     #run the problem
-    print 'start Jensen run'
+    print('start Jensen run')
     tic = time.time()
     prob.run()
     toc = time.time()
 
     #print the results
-    print 'Time to run: ', toc-tic
-    print 'Hub Velocity at Each Turbine: ', prob['wtVelocity0']
+    print('Time to run: ', toc-tic)
+    print('Hub Velocity at Each Turbine: ', prob['wtVelocity0'])

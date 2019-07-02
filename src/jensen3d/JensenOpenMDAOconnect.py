@@ -1,12 +1,16 @@
-import numpy as np
-from scipy.integrate import quad
-from openmdao.api import Component, Group, Problem, IndepVarComp
-
-from plantenergy.GeneralWindFarmComponents import WindFrame
-import _jensen, _jensen2
+from __future__ import print_function, division, absolute_import
 import time
 
+import numpy as np
+from scipy.integrate import quad
+
+import openmdao.api as om
+from plantenergy.GeneralWindFarmComponents import WindFrame
+
 from JensenOpenMDAOconnect_extension import *
+import _jensen, _jensen2
+
+
 
 # Function Inputs:
 #   X is an array containing the x-positions of all the turbines in the wind farm.
@@ -74,7 +78,7 @@ def add_jensen_params_IndepVarComps(openmdao_object, model_options):
 
 # this component is to find the fraction of the all the rotors that are in the wakes of the other turbines
 class JensenTopHat(Component):
-    
+
     def __init__(self, nTurbines, direction_id=0):
         super(JensenTopHat, self).__init__()
 
@@ -98,7 +102,7 @@ class JensenTopHat(Component):
         self.add_param('Ct', np.zeros(nTurbines))
 
         self.add_param('model_params:alpha', val=0.1)
-        
+
         self.add_param('wind_speed', val=8.0, units='m/s')
         self.add_param('axialInduction', val=np.zeros(nTurbines)+1./3.)
 
@@ -106,7 +110,7 @@ class JensenTopHat(Component):
 
 
     def solve_nonlinear(self, params, unknowns, resids):
-        
+
 
         nTurbines = self.nTurbines
         direction_id = self.direction_id
@@ -326,7 +330,7 @@ if __name__=="__main__":
     turbineX = np.array([0, 100, 200])
     turbineY = np.array([0, 30, -31])
     turbineZ = np.array([150, 150, 150])
-    
+
     # initialize input variable arrays
     nTurbs = np.size(turbineX)
     rotorRadius = np.ones(nTurbs)*40.
@@ -352,7 +356,7 @@ if __name__=="__main__":
 
     #initialize problem
     prob.setup()
-    
+
     #assign values to parameters
     prob['turbineX'] = turbineX
     prob['turbineY'] = turbineY
