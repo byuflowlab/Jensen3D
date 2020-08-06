@@ -50,7 +50,7 @@ def get_cosine_factor_original(X, Y, R0, bound_angle=20.0, relaxationFactor=1.0)
                 # x-axis. 'z' included because the triangle actually starts at a distance 'z' in the negative
                 # x-direction from the wake-producing turbine.
                 # THETA ACTUALLY MEASURED BETWEEN THE FULCRUM OF THE WAKE AND THE DOWNSTREAM TURBINE.
-                theta = np.arctan((Y[j] - Y[i]) / (X[j] - X[i] + z))
+                theta = np.arctan((Y[j] - Y[i]) / (np.abs(X[j] - X[i]) + z))
 
                 # If theta is less than the bound angle, that means the jth turbine is within the ith turbine's wake.
                 # else, f_theta[i, j] remains at zero.
@@ -217,7 +217,7 @@ class JensenCosine(om.ExplicitComponent):
                 if dx > 0.0:
 
                     # calculate velocity deficit - looks like it's currently squaring the cosine factor.
-                    loss[j] = 2.0*a[j]*(f_theta[j][i]*r[j]/(r[j]+alpha*dx))**2 #Jensen's formula
+                    loss[j] = 2.0*a[j]*f_theta[j][i]*(r[j]/(r[j]+alpha*dx))**2 #Jensen's formula
                     # loss[j] = 2.0*a[j]*f_theta[j][i]*(r[j]/(r[j]+alpha*dx))**2 #Jensen's formula
 
                     loss[j] = loss[j]**2
@@ -248,10 +248,10 @@ class JensenCosineFortran(om.ExplicitComponent):
         direction_id = opt['direction_id']
         options = opt['options']
 
-        self.deriv_options['type'] = 'fd'
-        self.deriv_options['form'] = 'central'
-        self.deriv_options['step_size'] = 1.0e-6
-        self.deriv_options['step_calc'] = 'relative'
+        # self.deriv_options['type'] = 'fd'
+        # self.deriv_options['form'] = 'central'
+        # self.deriv_options['step_size'] = 1.0e-6
+        # self.deriv_options['step_calc'] = 'relative'
 
         self.nTurbines = nTurbines
         self.direction_id = direction_id
@@ -289,7 +289,7 @@ class JensenCosineFortran(om.ExplicitComponent):
         self.declare_partials('*', depvars, method='fd', form='central')
 
         # Complex step not supported across fortran module
-        self.set_check_partial_options('*', form='central', method='fd')
+        self.set_check_partial_options('*', form='central', method='fd', step=1E-6, step_calc='rel')
 
     def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
         opt = self.options
@@ -312,11 +312,10 @@ class JensenCosineFortran(om.ExplicitComponent):
         # Save the relaxation factor from the params dictionary into a variable to be used in this function.
         relaxationFactor = discrete_inputs['model_params:wec_factor']
 
-        f_theta = get_cosine_factor_original(turbineXw, turbineYw, R0=r[0]*self.radius_multiplier,
-                                             bound_angle=bound_angle, relaxationFactor=relaxationFactor)
+        # f_theta = get_cosine_factor_original(turbineXw, turbineYw, R0=r[0]*self.radius_multiplier,
+        #                                      bound_angle=bound_angle, relaxationFactor=relaxationFactor)
         # print f_theta
-
-        loss = _jensen2.jensenwake(turbineXw, turbineYw, rotorDiameter, relaxationFactor)
+        loss = _jensen2.jensenwake(turbineXw, turbineYw, rotorDiameter, alpha, bound_angle, a, relaxationFactor)
 
         hubVelocity = (1.0 - loss) * windSpeed
 

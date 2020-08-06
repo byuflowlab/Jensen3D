@@ -70,7 +70,7 @@ subroutine get_cosine_factor_original(nTurbines, X, Y, R0, bound_angle, relaxati
 end subroutine get_cosine_factor_original
 
 
-subroutine JensenWake(nTurbines, turbineXw, turbineYw, turb_diam, relaxationFactor, loss)
+subroutine JensenWake(nTurbines, turbineXw, turbineYw, turb_diam, alpha, bound_angle, a, relaxationFactor, loss)
 
     implicit none
 
@@ -79,35 +79,36 @@ subroutine JensenWake(nTurbines, turbineXw, turbineYw, turb_diam, relaxationFact
 
     ! in
     integer, intent(in) :: nTurbines
-    real(dp), intent(in) :: turb_diam, relaxationFactor
+    real(dp), intent(in) :: turb_diam, relaxationFactor, a, bound_angle, alpha
     real(dp), dimension(nTurbines), intent(in) :: turbineXw, turbineYw
 
     ! out
     real(dp), dimension(nTurbines), intent(out) :: loss
 
     ! local
-    real(dp) :: a, alpha, r0, bound_angle, x, y, r
+    real(dp) :: r0, x, y, r
     real(dp), dimension(nTurbines) :: loss_array
     real(dp), dimension(nTurbines,nTurbines) :: f_theta
     real(dp), parameter :: pi = 3.141592653589793_dp
     integer :: i, j
 
-    a = 1./3.
-    alpha = 0.1
-    r0 = turb_diam/2.
-    bound_angle = 20.
+    intrinsic sum, sqrt
+
+    r0 = turb_diam/2.0_dp
 
     call get_cosine_factor_original(nTurbines, turbineXw, turbineYw, r0, bound_angle, relaxationFactor, f_theta)
-
+    !print *, "using Jensen Fortran"
     do i = 1, nTurbines
+
         do j = 1, nTurbines
             x = turbineXw(i) - turbineXw(j)
             y = turbineYw(i) - turbineYw(j)
             if (x > 0.) then
                 r = alpha*x + r0
-                loss_array(j) = 2.*a*(r0*f_theta(j,i)/(r0 + alpha*x))**2
+                ! loss_array(j) = 2.0_dp*a*(r0*f_theta(j,i)/(r0 + alpha*x))**2
+                loss_array(j) = 2.0_dp*a*((r0/(r0 + alpha*x))**2)*f_theta(j,i)
             else
-                loss_array(j) = 0.
+                loss_array(j) = 0.0_dp
             end if
         end do
         loss(i) = sqrt(sum(loss_array**2))
