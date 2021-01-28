@@ -80,7 +80,7 @@ class test_jensencosine(unittest.TestCase):
 
         wake_model_options = {'nSamples': 0,
                               'nRotorPoints': 1,
-                              'use_ct_curve': True,
+                              'use_ct_curve': False,
                               'ct_curve_ct': ct_curve_ct,
                               'ct_curve_wind_speed': ct_curve_wind_speed,
                               'interp_type': 1,
@@ -131,12 +131,13 @@ class test_jensencosine(unittest.TestCase):
 
         self.prob = prob
 
+        print(prob['wtVelocity0'])
+        
     def testImport(self):
         self.assertEqual(self.working_import, True, "jensen_wrapper Import Failed")
 
     def testRun(self):
         np.testing.assert_allclose(self.prob['wtVelocity0'],  np.array([8.1     , 8.1     , 6.869475, 6.869475, 6.758616, 6.730616]))
-
 
 class test_jensencosine_jensen1983(unittest.TestCase):
 
@@ -213,7 +214,7 @@ class test_jensencosine_jensen1983(unittest.TestCase):
 
         wake_model_options = {'nSamples': 0,
                               'nRotorPoints': 1,
-                              'use_ct_curve': True,
+                              'use_ct_curve': False,
                               'ct_curve_ct': ct_curve_ct,
                               'ct_curve_wind_speed': ct_curve_wind_speed,
                               'interp_type': 1,
@@ -455,7 +456,7 @@ class test_jensencosine_katic1986(unittest.TestCase):
 
         wake_model_options = {'nSamples': 0,
                               'nRotorPoints': 1,
-                              'use_ct_curve': True,
+                              'use_ct_curve': False,
                               'ct_curve_ct': ct_curve_ct,
                               'ct_curve_wind_speed': ct_curve_wind_speed,
                               'interp_type': 1,
@@ -624,3 +625,5 @@ class test_jensencosine_katic1986(unittest.TestCase):
 
 
 
+if __name__ == "__main__":
+    unittest.main()

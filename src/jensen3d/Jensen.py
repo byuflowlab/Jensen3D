@@ -167,7 +167,7 @@ if __name__ == '__main__':
 
     # Jensen_Wake_Model(overlap, loss, jensen_power, jensen_plot, x, y, r_0, alpha, U_direction_radians)
     # xin = np.hstack([x, y])
-    print Jensen_Wake_Model(xin)
+    # print Jensen_Wake_Model(xin)
     ax = Axes3D(plt.gcf())
     """for i in range(len(x)):
         ax.scatter(x[i], y[i], z[i], c = 'r', s=pi*r_0[i]**2, marker='.')

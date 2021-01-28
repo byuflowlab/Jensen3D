@@ -127,20 +127,20 @@ if __name__=="__main__":
     for i in range(2):
         lower = np.append(lower, 75)
         upper = np.append(upper, 125)
-    print "Running..."
+    print("Running...")
 
     startTime = time.time()
     optimizer = SNOPT()
     #optimizer.setOption('maxGen',100)
     xopt, fopt, info = optimize(calc_AEP, xin, lower, upper, optimizer)
-    print "Time to run: ", time.time()-startTime
+    print("Time to run: ", time.time()-startTime)
 
-    print 'SNOPT:'
-    print 'xopt: ', xopt
-    print 'fopt: ', fopt
-    print 'info: ', info
+    print('SNOPT:')
+    print('xopt: ', xopt)
+    print('fopt: ', fopt)
+    print('info: ', info)
 
-    print "Starting Power: ", calc_AEP(xin)[0]
+    print("Starting Power: ", calc_AEP(xin)[0])
     nTurbs = len(x)
     nTall = nTurbs/2
     zstart = np.zeros(len(x))

@@ -112,10 +112,10 @@ if __name__=="__main__":
     U_vel = 8.
 
     params = tuple([nVAWT, rh, rv, rt, dir_rad, U_vel])
-    print "Running..."
+    print("Running...")
 
 
-    print calc_AEP(xin, params, 20,20)
+    print(calc_AEP(xin, params, 20,20))
     """for i in range(1,100):
         print i
         print calc_AEP(xin, params, i,10), "MWhrs"""

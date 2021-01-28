@@ -259,6 +259,22 @@ class JensenCosineFortran(om.ExplicitComponent):
             self.radius_multiplier = options['radius multiplier']
         except:
             self.radius_multiplier = 1.0
+        
+        try:
+            self.use_ct_curve = options['use_ct_curve']
+            self.ct_curve_ct = options['ct_curve_ct']
+            self.ct_curve_wind_speed = options['ct_curve_wind_speed']
+        except:
+            print("ct curve options not found.")
+            self.use_ct_curve = False
+            self.ct_curve_ct = np.array([0.0])
+            self.ct_curve_wind_speed = np.array([0.0])
+                
+        ct_max = 0.99
+        if np.any(self.ct_curve_ct > 0.):
+            if np.any(self.ct_curve_ct > ct_max):
+                warnings.warn('Ct values must be <= 1, clipping provided values accordingly')
+                self.ct_curve_ct = np.clip(self.ct_curve_ct, a_max=ct_max, a_min=None)
 
         #unused but required for compatibility
         self.add_input('yaw%i' % direction_id, np.zeros(nTurbines), units='deg')
@@ -285,11 +301,12 @@ class JensenCosineFortran(om.ExplicitComponent):
         self.add_output('wtVelocity%i' % direction_id, val=np.zeros(nTurbines), units='m/s')
 
         # Derivatives
-        depvars = ['turbineXw', 'turbineYw', 'turbineZ', 'rotorDiameter', 'wind_speed', 'axialInduction']
-        self.declare_partials('*', depvars, method='fd', form='central')
+        depvars = ['turbineXw', 'turbineYw', 'rotorDiameter']
+
+        self.declare_partials('*', depvars, method='fd')
 
         # Complex step not supported across fortran module
-        self.set_check_partial_options('*', form='central', method='fd', step=1E-6, step_calc='rel')
+        self.set_check_partial_options('*', method='fd')
 
     def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
         opt = self.options
@@ -305,22 +322,62 @@ class JensenCosineFortran(om.ExplicitComponent):
         bound_angle = discrete_inputs['model_params:spread_angle']
         a = inputs['axialInduction']
         windSpeed = inputs['wind_speed']
+        use_ct_curve = self.use_ct_curve
+        ct_curve_wind_speed = self.ct_curve_wind_speed
+        ct_curve_ct = self.ct_curve_ct
 
         loss = np.zeros(nTurbines, dtype=inputs._data.dtype)
-        hubVelocity = np.zeros(nTurbines, dtype=inputs._data.dtype)
+        wtVelocity = np.zeros(nTurbines, dtype=inputs._data.dtype)
 
         # Save the relaxation factor from the params dictionary into a variable to be used in this function.
         relaxationFactor = discrete_inputs['model_params:wec_factor']
 
-        # f_theta = get_cosine_factor_original(turbineXw, turbineYw, R0=r[0]*self.radius_multiplier,
-        #                                      bound_angle=bound_angle, relaxationFactor=relaxationFactor)
-        # print f_theta
-        loss = _jensen2.jensenwake(turbineXw, turbineYw, rotorDiameter, alpha, bound_angle, a, relaxationFactor)
+        wtVelocity = _jensen2.jensenwake(turbineXw, turbineYw, rotorDiameter, alpha, bound_angle, ct_curve_ct, ct_curve_wind_speed, use_ct_curve, relaxationFactor, windSpeed)
 
-        hubVelocity = (1.0 - loss) * windSpeed
+        outputs['wtVelocity%i' % direction_id] = wtVelocity
 
-        outputs['wtVelocity%i' % direction_id] = hubVelocity
+    def compute_partials(self, inputs, partials, discrete_inputs):
+        opt = self.options
+        nTurbines = opt['nTurbines']
+        direction_id = opt['direction_id']
 
+        # x and y positions w.r.t. the wind dir. (wind dir. = +x)
+        turbineXw = inputs['turbineXw']
+        turbineYw = inputs['turbineYw']
+
+        # turbine specs
+        rotorDiameter = inputs['rotorDiameter']
+
+        # air flow
+        wind_speed = inputs['wind_speed']
+        Ct = inputs['Ct']
+
+        # wake model parameters
+        alpha = discrete_inputs['model_params:alpha']
+        bound_angle = discrete_inputs['model_params:spread_angle']
+
+        wec_factor = discrete_inputs['model_params:wec_factor']
+
+        use_ct_curve = self.use_ct_curve
+        ct_curve_wind_speed = self.ct_curve_wind_speed
+        ct_curve_ct = self.ct_curve_ct
+        
+        # define jacobian size
+        nTurbines = len(turbineXw)
+        nDirs = nTurbines
+
+        # define input array to direct differentiation
+        wtVelocityb = np.eye(nDirs, nTurbines)
+
+        turbineXwb, turbineYwb, rotorDiameterb =  _jensen2.jensenwake_bv(turbineXw,turbineYw,
+            rotorDiameter, alpha, bound_angle, ct_curve_ct, ct_curve_wind_speed, use_ct_curve,
+            wec_factor, wind_speed, wtVelocityb)
+
+        
+        # print("this is a check")
+        partials['wtVelocity%i' % direction_id, 'turbineXw'] = turbineXwb
+        partials['wtVelocity%i' % direction_id, 'turbineYw'] = turbineYwb
+        partials['wtVelocity%i' % direction_id, 'rotorDiameter'] = rotorDiameterb
 
 class Jensen(om.Group):
     #Group with all the components for the Jensen model
