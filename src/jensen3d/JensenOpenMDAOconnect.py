@@ -8,7 +8,7 @@ import openmdao.api as om
 from plantenergy.GeneralWindFarmComponents import WindFrame
 
 from jensen3d.JensenOpenMDAOconnect_extension import *
-import _jensen, _jensen2
+import _jensen, _jensen2, _jensen2diff
 
 
 
@@ -369,12 +369,18 @@ class JensenCosineFortran(om.ExplicitComponent):
         # define input array to direct differentiation
         wtVelocityb = np.eye(nDirs, nTurbines)
 
-        turbineXwb, turbineYwb, rotorDiameterb =  _jensen2.jensenwake_bv(turbineXw,turbineYw,
+        turbineXwb, turbineYwb, rotorDiameterb =  _jensen2diff.jensenwake_bv(turbineXw,turbineYw,
             rotorDiameter, alpha, bound_angle, ct_curve_ct, ct_curve_wind_speed, use_ct_curve,
             wec_factor, wind_speed, wtVelocityb)
 
         
         # print("this is a check")
+        print(np.shape(turbineXwb))
+        print(np.shape(turbineXw))
+        print(np.shape(turbineYwb))
+        print(np.shape(turbineYw))
+        print(np.shape(rotorDiameterb))
+        print(np.shape(rotorDiameter))
         partials['wtVelocity%i' % direction_id, 'turbineXw'] = turbineXwb
         partials['wtVelocity%i' % direction_id, 'turbineYw'] = turbineYwb
         partials['wtVelocity%i' % direction_id, 'rotorDiameter'] = rotorDiameterb

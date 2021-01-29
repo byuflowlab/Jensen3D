@@ -37,8 +37,8 @@ subroutine get_cosine_factor_original(nTurbines, X, Y, R0, bound_angle, relaxati
     integer, parameter :: dp = kind(0.d0)
     integer, intent(in) :: nTurbines
 
-    real(dp), intent(in) :: bound_angle, R0, relaxationFactor
-    real(dp), dimension(nTurbines), intent(in) :: X, Y
+    real(dp), intent(in) :: bound_angle, relaxationFactor
+    real(dp), dimension(nTurbines), intent(in) :: X, Y, R0
 
     real(dp), parameter :: pi = 3.141592653589793_dp
 
@@ -54,7 +54,7 @@ subroutine get_cosine_factor_original(nTurbines, X, Y, R0, bound_angle, relaxati
     do i = 1, nTurbines
         do j = 1, nTurbines
             if (X(i) < X(j)) then
-                z = (relaxationFactor * R0 * sin(gamma))/sin((bound_angle*pi/180.0))
+                z = (relaxationFactor * R0(i) * sin(gamma))/sin((bound_angle*pi/180.0))
                 theta = atan((Y(j) - Y(i)) / (X(j) - X(i) + z))
                 if (-(bound_angle*pi/180.0) < theta .and. theta < (bound_angle*pi/180.0)) then
                     f_theta(i,j) = (1. + cos(q*theta))/2.
@@ -139,10 +139,10 @@ subroutine linear_interpolation(nPoints, x, y, xval, yval)
     
 end subroutine linear_interpolation
 
-subroutine JensenWake(nTurbines, nCtPoints, turbineXw, turbineYw, turb_diam, alpha, &
+subroutine JensenWake(nTurbines, nCtPoints, turbineXw, turbineYw, rotorDiameter, alpha, &
 &    bound_angle, ct_curve_ct, ct_curve_wind_speed, use_ct_curve, relaxationFactor, & 
 &    windSpeed, wtVelocity)
-    ! dependent (output) params: loss
+    ! dependent (output) params: wtVelocity
 
     ! independent (input) params: turbineXw, turbineYw, turb_diam
 
@@ -153,8 +153,8 @@ subroutine JensenWake(nTurbines, nCtPoints, turbineXw, turbineYw, turb_diam, alp
 
     ! in
     integer, intent(in) :: nTurbines, nctpoints
-    real(dp), intent(in) :: turb_diam, relaxationFactor, bound_angle, alpha, windSpeed
-    real(dp), dimension(nTurbines), intent(in) :: turbineXw, turbineYw
+    real(dp), intent(in) :: relaxationFactor, bound_angle, alpha, windSpeed
+    real(dp), dimension(nTurbines), intent(in) :: turbineXw, turbineYw, rotorDiameter
     real(dp), dimension(nCtPoints), intent(in) :: ct_curve_ct, ct_curve_wind_speed
     logical, intent(in) :: use_ct_curve
 
@@ -163,15 +163,15 @@ subroutine JensenWake(nTurbines, nCtPoints, turbineXw, turbineYw, turb_diam, alp
 
     ! local
     real(dp) :: loss, a
-    real(dp) :: r0, x, y, r
-    real(dp), dimension(nTurbines) :: loss_array, Ct_local
+    real(dp) :: x, y, r
+    real(dp), dimension(nTurbines) :: loss_array, Ct_local, r0
     real(dp), dimension(nTurbines,nTurbines) :: f_theta
     real(dp), parameter :: pi = 3.141592653589793_dp
     integer :: i, j
 
     intrinsic sum, sqrt
 
-    r0 = turb_diam/2.0_dp
+    r0 = rotorDiameter(:)/2.0_dp
 
     wtVelocity(:) = windSpeed
 
@@ -184,13 +184,13 @@ subroutine JensenWake(nTurbines, nCtPoints, turbineXw, turbineYw, turb_diam, alp
             x = turbineXw(i) - turbineXw(j)
             y = turbineYw(i) - turbineYw(j)
             if (x > 0.) then
-                r = alpha*x + r0
+                r = alpha*x + r0(j)
                 if (use_ct_curve) then
                     call ct_to_axial_ind_func(ct_local(j), a)
                 else
                     a = 1.0_dp/3.0_dp
                 end if
-                loss_array(j) = 2.0_dp*a*((r0/(r0 + alpha*x))**2)*f_theta(j,i)
+                loss_array(j) = 2.0_dp*a*((r0(j)/(r0(j) + alpha*x))**2)*f_theta(j,i)
             else
                 loss_array(j) = 0.0_dp
             end if
