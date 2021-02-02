@@ -6,14 +6,13 @@
 !
 !  Differentiation of jensenwake in reverse (adjoint) mode:
 !   gradient     of useful results: wtvelocity
-!   with respect to varying inputs: turbinexw turb_diam wtvelocity
-!                turbineyw
-!   RW status of diff variables: turbinexw:out turb_diam:out wtvelocity:in-zero
+!   with respect to varying inputs: turbinexw wtvelocity turbineyw
+!   RW status of diff variables: turbinexw:out wtvelocity:in-zero
 !                turbineyw:out
 SUBROUTINE JENSENWAKE_BV(nturbines, nctpoints, turbinexw, turbinexwb, &
-& turbineyw, turbineywb, turb_diam, turb_diamb, alpha, bound_angle, &
-& ct_curve_ct, ct_curve_wind_speed, use_ct_curve, relaxationfactor, &
-& windspeed, wtvelocityb, nbdirs)
+& turbineyw, turbineywb, rotordiameter, alpha, bound_angle, ct_curve_ct&
+& , ct_curve_wind_speed, use_ct_curve, relaxationfactor, windspeed, &
+& wtvelocityb, nbdirs)
   !USE DIFFSIZES
 !  Hint: nbdirs should be the maximum number of differentiation directions
   IMPLICIT NONE
@@ -22,10 +21,10 @@ SUBROUTINE JENSENWAKE_BV(nturbines, nctpoints, turbinexw, turbinexwb, &
   INTEGER, PARAMETER :: dp=KIND(0.d0)
 ! in
   INTEGER, INTENT(IN) :: nturbines, nctpoints
-  REAL(dp), INTENT(IN) :: turb_diam, relaxationfactor, bound_angle, &
-& alpha, windspeed
-  REAL(dp), DIMENSION(nbdirs), intent(out) :: turb_diamb
-  REAL(dp), DIMENSION(nturbines), INTENT(IN) :: turbinexw, turbineyw
+  REAL(dp), INTENT(IN) :: relaxationfactor, bound_angle, alpha, &
+& windspeed
+  REAL(dp), DIMENSION(nturbines), INTENT(IN) :: turbinexw, turbineyw, &
+& rotordiameter
   REAL(dp), DIMENSION(nbdirs, nturbines), intent(out) :: turbinexwb, turbineywb
   REAL(dp), DIMENSION(nctpoints), INTENT(IN) :: ct_curve_ct, &
 & ct_curve_wind_speed
@@ -36,9 +35,9 @@ SUBROUTINE JENSENWAKE_BV(nturbines, nctpoints, turbinexw, turbinexwb, &
 ! local
   REAL(dp) :: loss, a
   REAL(dp), DIMENSION(nbdirs) :: lossb, ab
-  REAL(dp) :: r0, x, y, r
-  REAL(dp), DIMENSION(nbdirs) :: r0b, xb
-  REAL(dp), DIMENSION(nturbines) :: loss_array, ct_local
+  REAL(dp) :: x, y, r
+  REAL(dp), DIMENSION(nbdirs) :: xb
+  REAL(dp), DIMENSION(nturbines) :: loss_array, ct_local, r0
   REAL(dp), DIMENSION(nbdirs, nturbines) :: loss_arrayb, ct_localb
   REAL(dp), DIMENSION(nturbines, nturbines) :: f_theta
   REAL(dp), DIMENSION(nbdirs, nturbines, nturbines) :: f_thetab
@@ -48,12 +47,9 @@ SUBROUTINE JENSENWAKE_BV(nturbines, nctpoints, turbinexw, turbinexwb, &
   INTEGER :: nd
   REAL(dp) :: temp
   REAL(dp), DIMENSION(nbdirs) :: tempb
-  REAL(dp) :: temp0
-  REAL(dp), DIMENSION(nbdirs) :: tempb0
-  REAL(dp), DIMENSION(nbdirs) :: tempb1
   INTEGER :: branch
   INTEGER :: nbdirs
-  r0 = turb_diam/2.0_dp
+  r0 = rotordiameter(:)/2.0_dp
   CALL GET_COSINE_FACTOR_ORIGINAL(nturbines, turbinexw, turbineyw, r0, &
 &                           bound_angle, relaxationfactor, f_theta)
 !print *, "using Jensen Fortran"
@@ -71,7 +67,8 @@ SUBROUTINE JENSENWAKE_BV(nturbines, nctpoints, turbinexw, turbinexwb, &
           CALL PUSHCONTROL1B(1)
         END IF
         CALL PUSHREAL8(loss_array(j))
-        loss_array(j) = 2.0_dp*a*(r0/(r0+alpha*x))**2*f_theta(j, i)
+        loss_array(j) = 2.0_dp*a*(r0(j)/(r0(j)+alpha*x))**2*f_theta(j, i&
+&         )
         CALL PUSHCONTROL1B(1)
       ELSE
         CALL PUSHREAL8(loss_array(j))
@@ -89,7 +86,6 @@ SUBROUTINE JENSENWAKE_BV(nturbines, nctpoints, turbinexw, turbinexwb, &
   turbinexwb(:, :) = 0.0_8
   loss_arrayb(:, :) = 0.0_8
   f_thetab(:, :, :) = 0.0_8
-  r0b(:) = 0.0_8
   ct_localb(:, :) = 0.0_8
   DO i=nturbines,1,-1
     CALL POPREAL8(ct_local(i))
@@ -115,17 +111,13 @@ SUBROUTINE JENSENWAKE_BV(nturbines, nctpoints, turbinexw, turbinexwb, &
       ELSE
         x = turbinexw(i) - turbinexw(j)
         CALL POPREAL8(loss_array(j))
-        temp = r0 + alpha*x
-        temp0 = a*(r0*r0)
+        temp = r0(j) + alpha*x
         DO nd=1,nbdirs
-          tempb(nd) = 2.0_dp*loss_arrayb(nd, j)/temp**2
+          tempb(nd) = r0(j)**2*2.0_dp*loss_arrayb(nd, j)/temp**2
           loss_arrayb(nd, j) = 0.0_8
-          tempb0(nd) = f_theta(j, i)*tempb(nd)
-          f_thetab(nd, j, i) = f_thetab(nd, j, i) + temp0*tempb(nd)
-          tempb1(nd) = -(2*temp0*f_theta(j, i)*tempb(nd)/temp)
-          r0b(nd) = r0b(nd) + tempb1(nd) + 2*r0*a*tempb0(nd)
-          xb(nd) = alpha*tempb1(nd)
-          ab(nd) = r0**2*tempb0(nd)
+          ab(nd) = f_theta(j, i)*tempb(nd)
+          f_thetab(nd, j, i) = f_thetab(nd, j, i) + a*tempb(nd)
+          xb(nd) = -(alpha*2*a*f_theta(j, i)*tempb(nd)/temp)
         END DO
         CALL POPCONTROL1B(branch)
         IF (branch .EQ. 0) THEN
@@ -143,12 +135,9 @@ SUBROUTINE JENSENWAKE_BV(nturbines, nctpoints, turbinexw, turbinexwb, &
     END DO
   END DO
   CALL GET_COSINE_FACTOR_ORIGINAL_BV(nturbines, turbinexw, turbinexwb, &
-&                              turbineyw, turbineywb, r0, r0b, &
-&                              bound_angle, relaxationfactor, f_theta, &
-&                              f_thetab, nbdirs)
-  DO nd=1,nbdirs
-    turb_diamb(nd) = r0b(nd)/2.0_dp
-  END DO
+&                              turbineyw, turbineywb, r0, bound_angle, &
+&                              relaxationfactor, f_theta, f_thetab, &
+&                              nbdirs)
   wtvelocityb(:, :) = 0.0_8
 END SUBROUTINE JENSENWAKE_BV
 ! subroutine DirPower(nTurbines, turbineX, turbineY, wind_dir_deg, wind_speed, turb_diam, &
@@ -207,25 +196,24 @@ END SUBROUTINE JENSENWAKE_BV
 ! end subroutine calcAEP
 
 !  Differentiation of get_cosine_factor_original in reverse (adjoint) mode:
-!   gradient     of useful results: x f_theta r0
-!   with respect to varying inputs: x y r0
+!   gradient     of useful results: x f_theta
+!   with respect to varying inputs: x y
 SUBROUTINE GET_COSINE_FACTOR_ORIGINAL_BV(nturbines, x, xb, y, yb, r0, &
-& r0b, bound_angle, relaxationfactor, f_theta, f_thetab, nbdirs)
+& bound_angle, relaxationfactor, f_theta, f_thetab, nbdirs)
   !USE DIFFSIZES
 !  Hint: nbdirs should be the maximum number of differentiation directions
   IMPLICIT NONE
   INTRINSIC KIND
   INTEGER, PARAMETER :: dp=KIND(0.d0)
   INTEGER, INTENT(IN) :: nturbines
-  REAL(dp), INTENT(IN) :: bound_angle, r0, relaxationfactor
-  REAL(dp), DIMENSION(nbdirs) :: r0b
-  REAL(dp), DIMENSION(nturbines), INTENT(IN) :: x, y
+  REAL(dp), INTENT(IN) :: bound_angle, relaxationfactor
+  REAL(dp), DIMENSION(nturbines), INTENT(IN) :: x, y, r0
   REAL(dp), DIMENSION(nbdirs, nturbines) :: xb, yb
   REAL(dp), PARAMETER :: pi=3.141592653589793_dp
   REAL(dp), DIMENSION(nturbines, nturbines) :: f_theta
   REAL(dp), DIMENSION(nbdirs, nturbines, nturbines) :: f_thetab
   REAL(dp) :: q, gamma, theta, z
-  REAL(dp), DIMENSION(nbdirs) :: thetab, zb
+  REAL(dp), DIMENSION(nbdirs) :: thetab
   INTEGER :: i, j
   INTRINSIC SIN
   INTRINSIC ATAN
@@ -243,7 +231,7 @@ SUBROUTINE GET_COSINE_FACTOR_ORIGINAL_BV(nturbines, x, xb, y, yb, r0, &
     DO j=1,nturbines
       IF (x(i) .LT. x(j)) THEN
         CALL PUSHREAL8(z)
-        z = relaxationfactor*r0*SIN(gamma)/SIN(bound_angle*pi/180.0)
+        z = relaxationfactor*r0(i)*SIN(gamma)/SIN(bound_angle*pi/180.0)
         CALL PUSHREAL8(theta)
         theta = ATAN((y(j)-y(i))/(x(j)-x(i)+z))
         IF (-(bound_angle*pi/180.0) .LT. theta .AND. theta .LT. &
@@ -278,7 +266,7 @@ SUBROUTINE GET_COSINE_FACTOR_ORIGINAL_BV(nturbines, x, xb, y, yb, r0, &
           END DO
         END IF
         CALL POPREAL8(theta)
-        temp = x(j) - x(i) + z
+        temp = z + x(j) - x(i)
         temp0 = (y(j)-y(i))/temp
         CALL POPREAL8(z)
         DO nd=1,nbdirs
@@ -288,9 +276,6 @@ SUBROUTINE GET_COSINE_FACTOR_ORIGINAL_BV(nturbines, x, xb, y, yb, r0, &
           tempb0(nd) = -(temp0*tempb(nd))
           xb(nd, j) = xb(nd, j) + tempb0(nd)
           xb(nd, i) = xb(nd, i) - tempb0(nd)
-          zb(nd) = tempb0(nd)
-          r0b(nd) = r0b(nd) + relaxationfactor*SIN(gamma)*zb(nd)/SIN(&
-&           bound_angle/180.0*pi)
         END DO
       END IF
     END DO
@@ -375,3 +360,5 @@ SUBROUTINE LINEAR_INTERPOLATION_BV(npoints, x, y, xval, xvalb, yval, &
     END IF
   END IF
 END SUBROUTINE LINEAR_INTERPOLATION_BV
+
+
